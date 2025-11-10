@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>mcsBuilder — Stage 00 Scaffold</title>
+  <style>
+    :root {
+      --bg: #16161d;
+      --panel-bg: #1f1f29;
+      --panel-border: #3a3a4d;
+      --text: #f4f4f6;
+      --accent: #6bd3ff;
+      --hud-bg: rgba(10, 10, 16, 0.85);
+      --grid: rgba(255, 255, 255, 0.06);
+      --bubble-bg: rgba(20, 20, 28, 0.92);
+      font-size: 16px;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Press Start 2P", "VT323", "Courier New", monospace;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    body.high-contrast {
+      --bg: #0d0d0d;
+      --panel-bg: #000;
+      --panel-border: #fff;
+      --text: #ffffff;
+      --hud-bg: rgba(0, 0, 0, 0.85);
+      --grid: rgba(255, 255, 255, 0.2);
+      --bubble-bg: rgba(0, 0, 0, 0.92);
+    }
+
+    h1, h2, h3 {
+      font-size: 1rem;
+      letter-spacing: 0.05em;
+      margin: 0 0 0.75rem;
+    }
+
+    .hud {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.75rem 1.25rem;
+      background: var(--hud-bg);
+      border-bottom: 2px solid var(--panel-border);
+      text-transform: uppercase;
+      font-size: 0.75rem;
+      letter-spacing: 0.08em;
+    }
+
+    .hud span.value {
+      color: var(--accent);
+      margin-left: 0.5rem;
+    }
+
+    .main-wrapper {
+      display: flex;
+      flex: 1;
+      gap: 1.5rem;
+      padding: 1.5rem;
+      box-sizing: border-box;
+    }
+
+    canvas {
+      border: 3px solid var(--panel-border);
+      image-rendering: pixelated;
+      background: #101018;
+    }
+
+    .panel {
+      width: 260px;
+      background: var(--panel-bg);
+      border: 3px solid var(--panel-border);
+      padding: 1.25rem;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      height: fit-content;
+    }
+
+    .panel button {
+      width: 100%;
+      padding: 0.75rem;
+      background: transparent;
+      color: var(--text);
+      border: 2px solid var(--panel-border);
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.75rem;
+      letter-spacing: 0.08em;
+      transition: background 0.2s ease;
+    }
+
+    .panel button:hover,
+    .panel button:focus {
+      background: rgba(255, 255, 255, 0.08);
+      outline: none;
+    }
+
+    .panel .worker-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .panel .worker-group button {
+      text-align: left;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    #textBubble {
+      position: absolute;
+      top: 6.5rem;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--bubble-bg);
+      border: 2px solid var(--panel-border);
+      padding: 0.75rem 1rem;
+      border-radius: 6px;
+      font-size: 0.7rem;
+      letter-spacing: 0.05em;
+      max-width: 320px;
+      text-align: center;
+      display: none;
+      pointer-events: none;
+      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.4);
+      z-index: 10;
+    }
+
+    .panel .status {
+      font-size: 0.65rem;
+      line-height: 1.4;
+      opacity: 0.8;
+    }
+  </style>
+</head>
+<body>
+  <div class="hud">
+    <div>Wood Stock<span class="value" id="hud-wood">120</span></div>
+    <div>Current Floor<span class="value" id="hud-floor">1</span></div>
+    <div>Progress<span class="value" id="hud-progress">12%</span></div>
+    <div>Total Time<span class="value" id="hud-time">00:00</span></div>
+  </div>
+  <div class="main-wrapper">
+    <canvas id="gameCanvas" width="900" height="900" aria-label="mcsBuilder stage 00 playfield"></canvas>
+    <aside class="panel" aria-label="control panel">
+      <h2>Control Panel</h2>
+      <button id="pauseBtn" type="button">Pause</button>
+      <button id="speedBtn" type="button">Speed: 1×</button>
+      <button id="contrastBtn" type="button">Contrast</button>
+      <section class="worker-group" aria-label="worker commands">
+        <h3>Workers</h3>
+        <button class="worker-btn" data-worker="builder" type="button">Builder<span>idle</span></button>
+        <button class="worker-btn" data-worker="delivery" type="button">Delivery<span>idle</span></button>
+      </section>
+      <p class="status" id="panelStatus">Awaiting input…</p>
+    </aside>
+  </div>
+  <div id="textBubble" role="status" aria-live="polite"></div>
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+
+    const cellSize = 30;
+    const gridCount = 30;
+    const frameDuration = 1000 / 30;
+
+    const player = {
+      x: 14 * cellSize,
+      y: 22 * cellSize,
+      width: 26,
+      height: 26,
+      speed: 150,
+      color: '#f9f871'
+    };
+
+    const zones = [
+      {
+        name: 'MCS Construction',
+        description: 'Future site of the Computer Science building.',
+        x: 11 * cellSize,
+        y: 9 * cellSize,
+        width: 8 * cellSize,
+        height: 10 * cellSize,
+        color: '#556b8e',
+        solid: true
+      },
+      {
+        name: 'Wood House',
+        description: 'Stockpile for framing lumber.',
+        x: 3 * cellSize,
+        y: 6 * cellSize,
+        width: 5 * cellSize,
+        height: 6 * cellSize,
+        color: '#8b5a2b',
+        solid: true
+      },
+      {
+        name: 'Starbucks',
+        description: 'Quick caffeine stop for the crew.',
+        x: 20 * cellSize,
+        y: 4 * cellSize,
+        width: 5 * cellSize,
+        height: 5 * cellSize,
+        color: '#2f5233',
+        solid: true
+      },
+      {
+        name: 'Dorm Beds',
+        description: 'Where exhausted workers rest up.',
+        x: 6 * cellSize,
+        y: 19 * cellSize,
+        width: 7 * cellSize,
+        height: 6 * cellSize,
+        color: '#5a3f6b',
+        solid: true
+      }
+    ];
+
+    const workers = [
+      { name: 'Builder', x: 15 * cellSize + 10, y: 15 * cellSize + 5, color: '#ffd166', state: 'idle' },
+      { name: 'Delivery', x: 18 * cellSize + 10, y: 17 * cellSize + 5, color: '#4cc9f0', state: 'idle' }
+    ];
+
+    const keys = {};
+    let isPaused = false;
+    let speedMultiplier = 1;
+    let progress = 0.12;
+    let totalTime = 0;
+    let woodStock = 120;
+    let bubbleTimeout = null;
+
+    const statusEl = document.getElementById('panelStatus');
+    const hudWood = document.getElementById('hud-wood');
+    const hudFloor = document.getElementById('hud-floor');
+    const hudProgress = document.getElementById('hud-progress');
+    const hudTime = document.getElementById('hud-time');
+    const bubble = document.getElementById('textBubble');
+
+    function formatTime(seconds) {
+      const mins = Math.floor(seconds / 60).toString().padStart(2, '0');
+      const secs = Math.floor(seconds % 60).toString().padStart(2, '0');
+      return `${mins}:${secs}`;
+    }
+
+    function updateHUD() {
+      hudWood.textContent = woodStock.toString();
+      hudFloor.textContent = '1';
+      hudProgress.textContent = `${Math.round(progress * 100)}%`;
+      hudTime.textContent = formatTime(totalTime);
+    }
+
+    function rectsOverlap(a, b) {
+      return a.x < b.x + b.width &&
+             a.x + a.width > b.x &&
+             a.y < b.y + b.height &&
+             a.y + a.height > b.y;
+    }
+
+    function expandedRect(rect, padding) {
+      return {
+        x: rect.x - padding,
+        y: rect.y - padding,
+        width: rect.width + padding * 2,
+        height: rect.height + padding * 2
+      };
+    }
+
+    function handleMovement(dt) {
+      let vx = 0;
+      let vy = 0;
+      if (keys['KeyW']) vy -= 1;
+      if (keys['KeyS']) vy += 1;
+      if (keys['KeyA']) vx -= 1;
+      if (keys['KeyD']) vx += 1;
+
+      if (vx !== 0 && vy !== 0) {
+        const inv = Math.SQRT1_2;
+        vx *= inv;
+        vy *= inv;
+      }
+
+      const distance = player.speed * dt * speedMultiplier;
+      const solids = zones.filter(z => z.solid);
+
+      if (vx !== 0) {
+        const nextRect = {
+          x: player.x + vx * distance,
+          y: player.y,
+          width: player.width,
+          height: player.height
+        };
+        if (!solids.some(s => rectsOverlap(nextRect, s))) {
+          player.x = nextRect.x;
+        }
+      }
+
+      if (vy !== 0) {
+        const nextRect = {
+          x: player.x,
+          y: player.y + vy * distance,
+          width: player.width,
+          height: player.height
+        };
+        if (!solids.some(s => rectsOverlap(nextRect, s))) {
+          player.y = nextRect.y;
+        }
+      }
+
+      player.x = Math.max(2, Math.min(player.x, canvas.width - player.width - 2));
+      player.y = Math.max(2, Math.min(player.y, canvas.height - player.height - 2));
+    }
+
+    function drawGrid() {
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+      ctx.lineWidth = 1;
+      for (let i = 1; i < gridCount; i++) {
+        const pos = i * cellSize + 0.5;
+        ctx.beginPath();
+        ctx.moveTo(pos, 0);
+        ctx.lineTo(pos, canvas.height);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, pos);
+        ctx.lineTo(canvas.width, pos);
+        ctx.stroke();
+      }
+    }
+
+    function drawZones() {
+      zones.forEach(zone => {
+        ctx.fillStyle = zone.color;
+        ctx.fillRect(zone.x, zone.y, zone.width, zone.height);
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(zone.x, zone.y, zone.width, zone.height);
+
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+        ctx.fillRect(zone.x, zone.y, zone.width, 18);
+        ctx.fillStyle = '#f7f7fb';
+        ctx.font = '12px "Press Start 2P", "VT323", monospace';
+        ctx.textBaseline = 'top';
+        ctx.fillText(zone.name, zone.x + 6, zone.y + 2);
+      });
+    }
+
+    function drawWorkers() {
+      ctx.font = '12px "Press Start 2P", "VT323", monospace';
+      ctx.textBaseline = 'bottom';
+      workers.forEach(worker => {
+        ctx.fillStyle = worker.color;
+        ctx.fillRect(worker.x, worker.y, 20, 20);
+        ctx.fillStyle = '#000000aa';
+        ctx.fillRect(worker.x - 2, worker.y - 18, 60, 16);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(`${worker.name}`, worker.x, worker.y - 6);
+        ctx.fillStyle = '#a6f1ff';
+        ctx.fillText(worker.state, worker.x, worker.y - 18);
+      });
+    }
+
+    function drawPlayer() {
+      ctx.fillStyle = '#000000aa';
+      ctx.fillRect(player.x - 2, player.y - 4, player.width + 4, player.height + 6);
+      ctx.fillStyle = player.color;
+      ctx.fillRect(player.x, player.y, player.width, player.height);
+      ctx.fillStyle = '#333333';
+      ctx.fillRect(player.x + 6, player.y + 6, 4, 4);
+      ctx.fillRect(player.x + player.width - 10, player.y + 6, 4, 4);
+      ctx.fillStyle = '#f25f5c';
+      ctx.fillRect(player.x + 9, player.y + player.height - 10, 8, 6);
+    }
+
+    function drawScene() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#0e1320';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      drawGrid();
+      drawZones();
+      drawWorkers();
+      drawPlayer();
+    }
+
+    function update(dt) {
+      if (!isPaused) {
+        handleMovement(dt);
+        totalTime += dt * speedMultiplier;
+        progress = Math.min(1, progress + dt * 0.005 * speedMultiplier);
+      }
+      updateHUD();
+    }
+
+    function getContextZone() {
+      const playerRect = {
+        x: player.x,
+        y: player.y,
+        width: player.width,
+        height: player.height
+      };
+      return zones.find(zone => rectsOverlap(playerRect, expandedRect(zone, 10)));
+    }
+
+    function showBubble(message) {
+      bubble.textContent = message;
+      bubble.style.display = 'block';
+      if (bubbleTimeout) {
+        clearTimeout(bubbleTimeout);
+      }
+      bubbleTimeout = setTimeout(() => {
+        bubble.style.display = 'none';
+      }, 2000);
+    }
+
+    function interact() {
+      const zone = getContextZone();
+      if (zone) {
+        showBubble(`${zone.name}: ${zone.description}`);
+      } else {
+        showBubble('You wave into the quiet night. Nothing happens.');
+      }
+    }
+
+    function togglePause() {
+      isPaused = !isPaused;
+      document.getElementById('pauseBtn').textContent = isPaused ? 'Resume' : 'Pause';
+      statusEl.textContent = isPaused ? 'Simulation paused.' : 'Simulation running.';
+    }
+
+    function cycleSpeed() {
+      if (speedMultiplier === 1) {
+        speedMultiplier = 2;
+      } else if (speedMultiplier === 2) {
+        speedMultiplier = 0.5;
+      } else {
+        speedMultiplier = 1;
+      }
+      document.getElementById('speedBtn').textContent = `Speed: ${speedMultiplier}×`;
+      statusEl.textContent = `Speed set to ${speedMultiplier.toFixed(1)}×.`;
+    }
+
+    function toggleContrast() {
+      document.body.classList.toggle('high-contrast');
+      statusEl.textContent = document.body.classList.contains('high-contrast')
+        ? 'High contrast enabled.'
+        : 'High contrast disabled.';
+    }
+
+    function handleWorkerClick(workerName) {
+      statusEl.textContent = `${workerName} remains idle (placeholder).`;
+      showBubble(`${workerName} acknowledges the order but keeps idling.`);
+    }
+
+    document.addEventListener('keydown', (event) => {
+      if (event.code === 'Space') {
+        event.preventDefault();
+        interact();
+        return;
+      }
+      keys[event.code] = true;
+    });
+
+    document.addEventListener('keyup', (event) => {
+      keys[event.code] = false;
+    });
+
+    document.getElementById('pauseBtn').addEventListener('click', togglePause);
+    document.getElementById('speedBtn').addEventListener('click', cycleSpeed);
+    document.getElementById('contrastBtn').addEventListener('click', toggleContrast);
+
+    document.querySelectorAll('.worker-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const workerName = btn.dataset.worker === 'builder' ? 'Builder' : 'Delivery';
+        handleWorkerClick(workerName);
+      });
+    });
+
+    updateHUD();
+    drawScene();
+    setInterval(() => {
+      update(1 / 30);
+      drawScene();
+    }, frameDuration);
+  </script>
+</body>
+</html>
