@@ -1,47 +1,39 @@
 # Feature Specification: [FEATURE NAME]
 
-**Feature Branch**: `[###-feature-name]`  
-**Created**: [DATE]  
-**Status**: Draft  
+**Feature Branch**: `[###-feature-name]`
+**Created**: [DATE]
+**Status**: Draft
 **Input**: User description: "$ARGUMENTS"
 
 ## User Scenarios & Testing *(mandatory)*
 
-<!--
-  IMPORTANT: User stories should be PRIORITIZED as user journeys ordered by importance.
-  Each user story/journey must be INDEPENDENTLY TESTABLE - meaning if you implement just ONE of them,
-  you should still have a viable MVP (Minimum Viable Product) that delivers value.
-  
-  Assign priorities (P1, P2, P3, etc.) to each story, where P1 is the most critical.
-  Think of each story as a standalone slice of functionality that can be:
-  - Developed independently
-  - Tested independently
-  - Deployed independently
-  - Demonstrated to users independently
--->
+Each story must:
+- Map directly to a **single stage deliverable** in `docs/stages/`
+- Produce a playable slice that can ship in an HTML file alone
+- Include the manual verification steps reviewers will execute
 
-### User Story 1 - [Brief Title] (Priority: P1)
+### User Story 1 - [Stage-critical objective] (Priority: P1)
 
-[Describe this user journey in plain language]
+[Describe how the player or reviewer interacts with the new behaviour]
 
-**Why this priority**: [Explain the value and why it has this priority level]
+**Why this priority**: [Connect to stage goal or blocker removal]
 
-**Independent Test**: [Describe how this can be tested independently - e.g., "Can be fully tested by [specific action] and delivers [specific value]"]
+**Independent Test**: [Describe the exact playtest or UI interaction that proves the story]
 
 **Acceptance Scenarios**:
 
-1. **Given** [initial state], **When** [action], **Then** [expected outcome]
-2. **Given** [initial state], **When** [action], **Then** [expected outcome]
+1. **Given** [initial state], **When** [action], **Then** [observable outcome within the stage scope]
+2. **Given** [initial state], **When** [action], **Then** [HUD/panel feedback expected]
 
 ---
 
-### User Story 2 - [Brief Title] (Priority: P2)
+### User Story 2 - [Supporting objective] (Priority: P2)
 
-[Describe this user journey in plain language]
+[Describe secondary interaction that enhances or unblocks the core loop]
 
-**Why this priority**: [Explain the value and why it has this priority level]
+**Why this priority**: [Explain value vs. Story 1]
 
-**Independent Test**: [Describe how this can be tested independently]
+**Independent Test**: [Manual test aligned with stage README]
 
 **Acceptance Scenarios**:
 
@@ -49,13 +41,13 @@
 
 ---
 
-### User Story 3 - [Brief Title] (Priority: P3)
+### User Story 3 - [Quality or analytics objective] (Priority: P3)
 
-[Describe this user journey in plain language]
+[Describe telemetry, polish, or accessibility slice]
 
-**Why this priority**: [Explain the value and why it has this priority level]
+**Why this priority**: [Explain the qualitative/quantitative value]
 
-**Independent Test**: [Describe how this can be tested independently]
+**Independent Test**: [Manual or telemetry review proving success]
 
 **Acceptance Scenarios**:
 
@@ -63,53 +55,39 @@
 
 ---
 
-[Add more user stories as needed, each with an assigned priority]
+[Add more user stories as needed; keep each independently ship-ready]
 
 ### Edge Cases
 
-<!--
-  ACTION REQUIRED: The content in this section represents placeholders.
-  Fill them out with the right edge cases.
--->
-
-- What happens when [boundary condition]?
-- How does system handle [error scenario]?
+Document gameplay boundaries that can break pacing or approvals:
+- How does the system respond when wood stock reaches zero while Builder is on the pad?
+- What happens if both workers rest simultaneously and the player triggers coffee?
+- How are collisions resolved when multiple agents target the same tile?
 
 ## Requirements *(mandatory)*
 
-<!--
-  ACTION REQUIRED: The content in this section represents placeholders.
-  Fill them out with the right functional requirements.
--->
-
 ### Functional Requirements
 
-- **FR-001**: System MUST [specific capability, e.g., "allow users to create accounts"]
-- **FR-002**: System MUST [specific capability, e.g., "validate email addresses"]  
-- **FR-003**: Users MUST be able to [key interaction, e.g., "reset their password"]
-- **FR-004**: System MUST [data requirement, e.g., "persist user preferences"]
-- **FR-005**: System MUST [behavior, e.g., "log all security events"]
-
-*Example of marking unclear requirements:*
-
-- **FR-006**: System MUST authenticate users via [NEEDS CLARIFICATION: auth method not specified - email/password, SSO, OAuth?]
-- **FR-007**: System MUST retain user data for [NEEDS CLARIFICATION: retention period not specified]
+- **FR-001**: Stage deliverable MUST run from `/stages/[stage-name]/index.html` with no build step.
+- **FR-002**: Player input MUST remain WASD + Space unless the spec explicitly expands controls.
+- **FR-003**: Worker FSMs MUST remain deterministic for identical world state and RNG seed.
+- **FR-004**: UI/HUD MUST surface the states referenced in user stories (stamina, wood, timers, etc.).
+- **FR-005**: Accessibility toggles introduced in earlier stages MUST keep functioning (speed, contrast, sound).
+- **FR-006**: Telemetry requested in Stage 05 MUST record into the analytics log without blocking gameplay.
+- **FR-007**: [NEEDS CLARIFICATION: add or remove when feature scope introduces new constraints]
 
 ### Key Entities *(include if feature involves data)*
 
-- **[Entity 1]**: [What it represents, key attributes without implementation]
-- **[Entity 2]**: [What it represents, relationships to other entities]
+- **Player**: Position, held item, interaction cooldown.
+- **Worker**: Role (Builder/Delivery), stamina, current order, path queue.
+- **World Tile**: Coordinates, zone type, occupancy state, interaction payload.
+- **Floor Progress**: Current floor number, required wood, elapsed build time.
 
 ## Success Criteria *(mandatory)*
 
-<!--
-  ACTION REQUIRED: Define measurable success criteria.
-  These must be technology-agnostic and measurable.
--->
-
 ### Measurable Outcomes
 
-- **SC-001**: [Measurable metric, e.g., "Users can complete account creation in under 2 minutes"]
-- **SC-002**: [Measurable metric, e.g., "System handles 1000 concurrent users without degradation"]
-- **SC-003**: [User satisfaction metric, e.g., "90% of users successfully complete primary task on first attempt"]
-- **SC-004**: [Business metric, e.g., "Reduce support tickets related to [X] by 50%"]
+- **SC-001**: Floor progression remains playable to the stage target within ≤15 minutes on reference hardware.
+- **SC-002**: Rendering loop sustains ≥30 FPS at 900×900 canvas.
+- **SC-003**: Manual reviewer can follow README instructions to verify every acceptance scenario.
+- **SC-004**: Analytics or HUD updates requested in this feature surface accurate values within one frame of change.
