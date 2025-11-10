@@ -164,16 +164,17 @@
       position: absolute;
       transform: translate(-50%, -110%);
       background: var(--bubble-bg);
-      border: 2px solid var(--panel-border);
+      border: 2px solid #fce38a;
       padding: 0.6rem 0.9rem;
       border-radius: 6px;
-      font-size: 0.7rem;
-      letter-spacing: 0.05em;
+      font-size: 0.74rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
       max-width: 280px;
       text-align: center;
       display: none;
       pointer-events: none;
-      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.4);
+      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.55), 0 0 12px rgba(252, 227, 138, 0.35);
       z-index: 20;
     }
 
@@ -234,10 +235,15 @@
     const FPS = 30;
     const frameDuration = 1000 / FPS;
     const MAX_STAMINA = 5;
-    const STAMINA_REST_RATE = 0.25;
-    const STAMINA_TRIP_COST = 0.5;
-    const STAMINA_BUILD_COST = 3;
-    const DELIVERY_TRIP_TIME = 4.5;
+    const STAMINA_REST_RATE = 0.25 / 1.5;
+    const STAMINA_TRIP_COST = 0.35;
+    const STAMINA_BUILD_COST = 2;
+    const WORKER_ACTIVE_SPEED = 85;
+    const WORKER_CARRY_SPEED = 75;
+    const DELIVERY_LOAD_TIME = 1.1;
+    const DELIVERY_DROP_TIME = 0.6;
+    const WORKER_IDLE_SPEED = 28;
+    const WORKER_APPROACH_BUFFER = 4;
     const WOOD_BASE = 10;
     const WOOD_PER_FLOOR = 5;
     const BUILD_BASE = 5;
@@ -267,6 +273,10 @@
 
     const zones = generateZones();
     const zoneEdgeMap = zones.map(getZoneEdgeCells);
+    const zoneDirectory = zones.reduce((acc, zone, index) => {
+      acc[zone.name] = { zone, edges: zoneEdgeMap[index] };
+      return acc;
+    }, {});
     const baseBlocked = createBlockedSetFromZones(zones);
 
     let playerCell = findPlayerStartCell(baseBlocked);
@@ -334,7 +344,7 @@
     function getWorkerRects(options = {}) {
       const { exclude } = options;
       return workers
-        .filter(worker => worker !== exclude)
+        .filter(worker => worker !== exclude && worker.visible)
         .map(worker => ({
           x: worker.x,
           y: worker.y,
@@ -353,6 +363,51 @@
         rects.push(getPlayerRect());
       }
       return rects;
+    }
+
+    function getZoneInfo(name) {
+      return zoneDirectory[name] || null;
+    }
+
+    function getApproachCenter(name) {
+      const info = getZoneInfo(name);
+      if (!info) {
+        return null;
+      }
+      for (const cell of info.edges) {
+        if (!blockedCells.has(cellKey(cell))) {
+          return {
+            x: cell.col * grid.cell + grid.cell / 2,
+            y: cell.row * grid.cell + grid.cell / 2
+          };
+        }
+      }
+      if (info.edges.length > 0) {
+        const fallback = info.edges[0];
+        const col = clamp(fallback.col, 0, grid.cols - 1);
+        const row = clamp(fallback.row, 0, grid.rows - 1);
+        return {
+          x: col * grid.cell + grid.cell / 2,
+          y: row * grid.cell + grid.cell / 2
+        };
+      }
+      return {
+        x: info.zone.x + info.zone.width / 2,
+        y: info.zone.y + info.zone.height / 2
+      };
+    }
+
+    function workerCenter(worker) {
+      return {
+        x: worker.x + worker.width / 2,
+        y: worker.y + worker.height / 2
+      };
+    }
+
+    function alignWorkerToCenter(worker, center) {
+      if (!center) return;
+      worker.x = center.x - worker.width / 2;
+      worker.y = center.y - worker.height / 2;
     }
 
     function formatTime(seconds) {
@@ -869,7 +924,7 @@
         inv: 0,
         orderStarted: false,
         tripTimer: 0,
-        idleSpeed: 28,
+        idleSpeed: WORKER_IDLE_SPEED,
         idleCooldown: Math.random() * 1.5,
         target: null,
         jumping: false,
@@ -877,7 +932,12 @@
         jumpDuration: 0.45,
         jumpHeight: 12,
         jumpOffset: 0,
-        hasJumped: false
+        hasJumped: false,
+        activity: 'idle',
+        visible: true,
+        buildReserved: false,
+        restAnchor: null,
+        taskTimer: 0
       };
     }
 
@@ -932,7 +992,7 @@
       workers.forEach(worker => {
         processWorkerOrder(worker, scaledDt);
 
-        if (worker.order === 'idle' && !worker.hasJumped) {
+        if (worker.order === 'idle' && worker.visible && !worker.hasJumped) {
           triggerIdleJump(worker);
         }
 
@@ -946,7 +1006,7 @@
           }
         }
 
-        if (worker.order === 'idle') {
+        if (worker.order === 'idle' && worker.visible) {
           if (worker.idleCooldown > 0) {
             worker.idleCooldown -= scaledDt;
           } else if (!worker.target) {
@@ -958,19 +1018,9 @@
           }
 
           if (worker.target) {
-            const centerX = worker.x + worker.width / 2;
-            const centerY = worker.y + worker.height / 2;
-            const dx = worker.target.x - centerX;
-            const dy = worker.target.y - centerY;
-            const dist = Math.hypot(dx, dy);
-
-            if (dist < 2) {
+            const reached = moveWorkerToward(worker, worker.target, worker.idleSpeed, scaledDt);
+            if (reached) {
               worker.target = null;
-            } else {
-              const step = Math.min(dist, worker.idleSpeed * scaledDt);
-              const moveX = (dx / dist) * step;
-              const moveY = (dy / dist) * step;
-              moveWorker(worker, moveX, moveY);
             }
           }
         }
@@ -978,51 +1028,192 @@
     }
 
     function processWorkerOrder(worker, dt) {
+      if (worker.order === 'rest') {
+        handleRest(worker, dt);
+        return;
+      }
+
       if (worker.order === 'idle') {
-        worker.stamina = Math.min(MAX_STAMINA, worker.stamina + STAMINA_REST_RATE * dt);
+        worker.activity = 'idle';
         worker.orderStarted = false;
-        worker.tripTimer = 0;
+        worker.buildReserved = false;
+        worker.taskTimer = 0;
+        return;
+      }
+
+      if (worker.stamina <= 0) {
+        setWorkerOrder(worker, 'rest', `${worker.name} heads to the dorm to recover.`);
         return;
       }
 
       if (worker.role === 'builder' && worker.order === 'build') {
-        if (!worker.orderStarted) {
-          if (state.stock.wood < state.floor.need) {
-            setWorkerOrder(worker, 'idle', 'Need more wood before building.');
-            return;
-          }
-          if (worker.stamina < STAMINA_BUILD_COST) {
-            setWorkerOrder(worker, 'idle', `${worker.name} needs rest before building.`);
-            return;
-          }
-          state.stock.wood = Math.max(0, state.stock.wood - state.floor.need);
-          worker.stamina = Math.max(0, worker.stamina - STAMINA_BUILD_COST);
-          worker.orderStarted = true;
-        }
-
-        if (state.floor.progress < 1) {
-          const progressGain = dt / state.floor.buildTime;
-          state.floor.progress = Math.min(1, state.floor.progress + progressGain);
-          if (state.floor.progress >= 1) {
-            completeFloor();
-            setWorkerOrder(worker, 'idle', `${worker.name} celebrates a completed floor!`);
-          }
-        }
+        handleBuilder(worker, dt);
       } else if (worker.role === 'delivery' && worker.order === 'deliver') {
-        worker.tripTimer += dt;
-        if (worker.tripTimer >= DELIVERY_TRIP_TIME) {
-          worker.tripTimer = 0;
-          if (worker.stamina < STAMINA_TRIP_COST) {
-            setWorkerOrder(worker, 'idle', `${worker.name} is exhausted and pauses deliveries.`);
+        handleDelivery(worker, dt);
+      }
+    }
+
+    function handleBuilder(worker, dt) {
+      const approach = getApproachCenter('MCS Construction');
+      if (!approach) {
+        return;
+      }
+
+      if (worker.activity !== 'toSite' && worker.activity !== 'building') {
+        worker.activity = 'toSite';
+        worker.target = approach;
+      }
+
+      if (worker.activity === 'toSite') {
+        const arrived = moveWorkerToward(worker, approach, WORKER_ACTIVE_SPEED, dt);
+        if (arrived) {
+          alignWorkerToCenter(worker, approach);
+          worker.target = null;
+          worker.activity = 'building';
+          if (!worker.buildReserved) {
+            if (state.stock.wood < state.floor.need) {
+              setWorkerOrder(worker, 'idle', 'Need more wood before building.');
+              return;
+            }
+            if (worker.stamina < STAMINA_BUILD_COST) {
+              setWorkerOrder(worker, 'rest', `${worker.name} needs rest before building.`);
+              return;
+            }
+            state.stock.wood = Math.max(0, state.stock.wood - state.floor.need);
+            worker.stamina = Math.max(0, worker.stamina - STAMINA_BUILD_COST);
+            worker.buildReserved = true;
+          }
+        }
+        return;
+      }
+
+      if (worker.activity === 'building') {
+        if (!worker.buildReserved) {
+          worker.activity = 'toSite';
+          worker.target = approach;
+          return;
+        }
+        const progressGain = dt / state.floor.buildTime;
+        state.floor.progress = Math.min(1, state.floor.progress + progressGain);
+        if (state.floor.progress >= 1) {
+          worker.buildReserved = false;
+          completeFloor();
+          setWorkerOrder(worker, 'idle', `${worker.name} completes the floor!`);
+        }
+      }
+    }
+
+    function handleDelivery(worker, dt) {
+      const woodApproach = getApproachCenter('Wood House');
+      const mcsApproach = getApproachCenter('MCS Construction');
+      if (!woodApproach || !mcsApproach) {
+        return;
+      }
+
+      if (!['toWood', 'loading', 'toMcs', 'delivering'].includes(worker.activity)) {
+        worker.activity = 'toWood';
+        worker.target = woodApproach;
+      }
+
+      if (worker.activity === 'toWood') {
+        const arrived = moveWorkerToward(worker, woodApproach, WORKER_ACTIVE_SPEED, dt);
+        if (arrived) {
+          alignWorkerToCenter(worker, woodApproach);
+          worker.activity = 'loading';
+          worker.taskTimer = 0;
+        }
+        return;
+      }
+
+      if (worker.activity === 'loading') {
+        worker.taskTimer += dt;
+        if (worker.taskTimer >= DELIVERY_LOAD_TIME) {
+          worker.taskTimer = 0;
+          const remaining = Math.max(0, state.floor.need - state.stock.wood);
+          if (remaining <= 0) {
+            setWorkerOrder(worker, 'idle', 'Wood stock is full for this floor.');
             return;
           }
-          worker.stamina = Math.max(0, worker.stamina - STAMINA_TRIP_COST);
-          const payload = 1;
-          const before = state.stock.wood;
-          state.stock.wood = Math.min(state.floor.need, state.stock.wood + payload);
-          if (state.stock.wood !== before) {
-            statusEl.textContent = `${worker.name} delivered ${payload} wood.`;
+          worker.inv = Math.min(1, remaining);
+          worker.activity = 'toMcs';
+          worker.target = mcsApproach;
+        }
+        return;
+      }
+
+      if (worker.activity === 'toMcs') {
+        const arrived = moveWorkerToward(worker, mcsApproach, WORKER_CARRY_SPEED, dt);
+        if (arrived) {
+          alignWorkerToCenter(worker, mcsApproach);
+          worker.activity = 'delivering';
+          worker.taskTimer = 0;
+        }
+        return;
+      }
+
+      if (worker.activity === 'delivering') {
+        worker.taskTimer += dt;
+        if (worker.taskTimer >= DELIVERY_DROP_TIME) {
+          worker.taskTimer = 0;
+          if (worker.inv <= 0) {
+            worker.activity = 'toWood';
+            worker.target = woodApproach;
+            return;
           }
+          const room = Math.max(0, state.floor.need - state.stock.wood);
+          if (room <= 0) {
+            worker.activity = 'toWood';
+            worker.target = woodApproach;
+            setWorkerOrder(worker, 'idle', 'Wood stock is full for this floor.');
+            return;
+          }
+          const delivered = Math.min(worker.inv, room);
+          state.stock.wood = Math.min(state.floor.need, state.stock.wood + delivered);
+          worker.inv -= delivered;
+          worker.stamina = Math.max(0, worker.stamina - STAMINA_TRIP_COST);
+          statusEl.textContent = `${worker.name} delivered ${delivered} wood.`;
+          if (worker.stamina <= 0) {
+            setWorkerOrder(worker, 'rest', `${worker.name} is exhausted and heads to the dorm.`);
+            return;
+          }
+          worker.activity = 'toWood';
+          worker.target = woodApproach;
+        }
+      }
+    }
+
+    function handleRest(worker, dt) {
+      const dormApproach = getApproachCenter('Dorm Beds');
+      if (!dormApproach) {
+        return;
+      }
+
+      if (worker.activity !== 'toDorm' && worker.activity !== 'resting') {
+        worker.activity = 'toDorm';
+        worker.visible = true;
+        worker.target = dormApproach;
+        worker.restAnchor = dormApproach;
+      }
+
+      if (worker.activity === 'toDorm') {
+        const arrived = moveWorkerToward(worker, dormApproach, WORKER_ACTIVE_SPEED, dt);
+        if (arrived) {
+          alignWorkerToCenter(worker, dormApproach);
+          worker.activity = 'resting';
+          worker.visible = false;
+        }
+        return;
+      }
+
+      if (worker.activity === 'resting') {
+        worker.stamina = Math.min(MAX_STAMINA, worker.stamina + STAMINA_REST_RATE * dt);
+        if (worker.stamina >= MAX_STAMINA - 0.01) {
+          worker.stamina = MAX_STAMINA;
+          worker.visible = true;
+          if (worker.restAnchor) {
+            alignWorkerToCenter(worker, worker.restAnchor);
+          }
+          setWorkerOrder(worker, 'idle', `${worker.name} feels refreshed and leaves the dorm.`);
         }
       }
     }
@@ -1100,6 +1291,32 @@
       worker.y = clamp(worker.y, 2, canvas.height - worker.height - 2);
     }
 
+    function moveWorkerToward(worker, target, speed, dt) {
+      if (!target) {
+        return false;
+      }
+      const center = workerCenter(worker);
+      const dx = target.x - center.x;
+      const dy = target.y - center.y;
+      const distance = Math.hypot(dx, dy);
+      if (distance <= WORKER_APPROACH_BUFFER) {
+        alignWorkerToCenter(worker, target);
+        return true;
+      }
+      if (distance === 0) {
+        return true;
+      }
+      const step = speed * dt;
+      const ratio = Math.min(1, step / distance);
+      const moveX = dx * ratio;
+      const moveY = dy * ratio;
+      moveWorker(worker, moveX, 0);
+      moveWorker(worker, 0, moveY);
+      worker.target = target;
+      const newCenter = workerCenter(worker);
+      return Math.hypot(target.x - newCenter.x, target.y - newCenter.y) <= WORKER_APPROACH_BUFFER;
+    }
+
     function getRandomInt(min, max) {
       return Math.floor(Math.random() * (max - min + 1)) + min;
     }
@@ -1166,6 +1383,9 @@
         ctx.strokeStyle = '#0a0d18';
         ctx.lineWidth = 2;
         ctx.strokeRect(zone.x, zone.y, zone.width, zone.height);
+        ctx.strokeStyle = 'rgba(252, 227, 138, 0.45)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(zone.x - 3, zone.y - 3, zone.width + 6, zone.height + 6);
 
         ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
         ctx.fillRect(zone.x, zone.y, zone.width, 18);
@@ -1175,6 +1395,10 @@
         ctx.textBaseline = 'top';
         ctx.textAlign = 'center';
         ctx.fillText(zone.name, zone.x + zone.width / 2, zone.y + 2);
+
+        ctx.font = '10px "Press Start 2P", "VT323", monospace';
+        ctx.fillStyle = 'rgba(252, 227, 138, 0.85)';
+        ctx.fillText('SPACE', zone.x + zone.width / 2, zone.y + zone.height - 18);
       });
       ctx.textAlign = 'left';
     }
@@ -1183,6 +1407,9 @@
       ctx.font = '10px "Press Start 2P", "VT323", monospace';
       ctx.textBaseline = 'bottom';
       workers.forEach(worker => {
+        if (!worker.visible) {
+          return;
+        }
         const bodyY = worker.y - worker.jumpOffset;
         ctx.fillStyle = '#00000088';
         ctx.fillRect(worker.x - 4, bodyY + worker.height, worker.width + 8, 6);
@@ -1201,15 +1428,15 @@
         ctx.fillStyle = isIdle ? '#6e7280' : '#f08080';
         ctx.fillRect(worker.x + 6, bodyY + worker.height - 6, worker.width - 12, 4);
 
-        ctx.fillStyle = '#000000aa';
-        ctx.fillRect(worker.x - 18, bodyY - 32, worker.width + 36, 26);
+        ctx.fillStyle = '#1d2238ee';
+        ctx.fillRect(worker.x - 18, bodyY - 34, worker.width + 36, 30);
 
-        ctx.fillStyle = '#dfe1f9';
+        ctx.fillStyle = '#f7f7fb';
         ctx.textAlign = 'center';
-        ctx.fillText(worker.name, worker.x + worker.width / 2, bodyY - 10);
-        ctx.fillStyle = isIdle ? '#9aa0b7' : '#f4a261';
+        ctx.fillText(worker.name, worker.x + worker.width / 2, bodyY - 12);
+        ctx.fillStyle = isIdle ? '#9aa0b7' : '#fce38a';
         const staminaText = `${worker.stamina.toFixed(1)}/${MAX_STAMINA}`;
-        ctx.fillText(`${worker.order} · ${staminaText}`, worker.x + worker.width / 2, bodyY - 24);
+        ctx.fillText(`${worker.order} · ${staminaText}`, worker.x + worker.width / 2, bodyY - 26);
       });
       ctx.textAlign = 'left';
     }
@@ -1233,6 +1460,18 @@
 
       ctx.fillStyle = '#41436a';
       ctx.fillRect(player.x + 2, player.y + player.height - 6, player.width - 4, 6);
+
+      if (player.item === 'coffee') {
+        ctx.fillStyle = '#1d2238ee';
+        ctx.fillRect(player.x - 14, player.y - 36, player.width + 28, 26);
+        ctx.fillStyle = '#fce38a';
+        ctx.font = '12px "Press Start 2P", "VT323", monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('LATTE', player.x + player.width / 2, player.y - 23);
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
+      }
     }
 
     function drawScene() {
@@ -1332,6 +1571,9 @@
       const px = player.x + player.width / 2;
       const py = player.y + player.height / 2;
       return workers.find(worker => {
+        if (!worker.visible) {
+          return false;
+        }
         const wx = worker.x + worker.width / 2;
         const wy = worker.y + worker.height / 2 - worker.jumpOffset;
         return Math.hypot(px - wx, py - wy) <= grid.cell * 1.1;
@@ -1342,8 +1584,12 @@
       player.item = 'none';
       state.workers.forEach(worker => {
         worker.stamina = MAX_STAMINA;
-        if (worker.order !== 'build') {
-          worker.orderStarted = false;
+        if (worker.order === 'rest') {
+          worker.visible = true;
+          if (worker.restAnchor) {
+            alignWorkerToCenter(worker, worker.restAnchor);
+          }
+          setWorkerOrder(worker, 'idle', `${worker.name} perks up from the latte!`);
         }
       });
       const message = 'Workers refreshed by coffee!';
@@ -1375,6 +1621,10 @@
     function handleWorkerClick(workerName) {
       const worker = workers.find(w => w.name === workerName);
       if (!worker) {
+        return;
+      }
+      if (worker.order === 'rest') {
+        showBubble(`${worker.name} is resting at the dorm.`);
         return;
       }
       const cycle = worker.role === 'builder' ? ['idle', 'build'] : ['idle', 'deliver'];
@@ -1424,6 +1674,11 @@
           refreshWorkerButtons();
           return;
         }
+      } else if (newOrder === 'rest') {
+        if (worker.activity === 'resting') {
+          refreshWorkerButtons();
+          return;
+        }
       }
 
       worker.order = newOrder;
@@ -1433,24 +1688,43 @@
         worker.tripTimer = 0;
         worker.idleCooldown = Math.random() * 0.6;
         worker.hasJumped = false;
+        worker.activity = 'idle';
+        worker.buildReserved = false;
+        worker.inv = 0;
+        worker.visible = true;
       } else {
         worker.target = null;
         if (newOrder === 'build') {
           worker.orderStarted = false;
+          worker.buildReserved = false;
+          worker.activity = 'toSite';
+          worker.target = getApproachCenter('MCS Construction');
         }
         if (newOrder === 'deliver') {
           worker.tripTimer = 0;
+          worker.inv = 0;
+          worker.activity = 'toWood';
+          worker.target = getApproachCenter('Wood House');
+        }
+        if (newOrder === 'rest') {
+          worker.activity = 'toDorm';
+          worker.target = getApproachCenter('Dorm Beds');
+          worker.restAnchor = null;
+          worker.visible = true;
+          worker.inv = 0;
         }
       }
 
       let message = messageOverride;
       if (!message) {
         if (newOrder === 'idle') {
-          message = `${worker.name} is idling to recover stamina.`;
+          message = `${worker.name} is idling and waiting for orders.`;
         } else if (newOrder === 'build') {
           message = `${worker.name} starts building floor ${state.floor.n}.`;
         } else if (newOrder === 'deliver') {
           message = `${worker.name} begins delivering wood.`;
+        } else if (newOrder === 'rest') {
+          message = `${worker.name} walks to the dorm for a break.`;
         }
       }
 

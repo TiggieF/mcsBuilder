@@ -1,6 +1,6 @@
 # Stage 02 — Systems & Economy Playtest Guide
 
-Stage 02 layers the simulation rules on top of the Stage 00 sandbox. This build introduces the central state model, stamina loops, resource formulas, and coffee boosts that will drive later automation. Use this checklist to validate the logic and capture balancing notes before we move forward.
+Stage 02 layers the simulation rules on top of the Stage 00 sandbox. This build introduces the shared state model, stamina management tied to the dorm, true worker pathing (wood house → MCS runs and on-site construction), plus brighter interaction cues and coffee boosts. Use this checklist to validate the logic and capture balancing notes before we move forward.
 
 ## 1. Launch the build
 1. Open `stages/stage-02-model-logic/index.html` in a desktop browser (Chrome/Firefox).
@@ -12,29 +12,28 @@ Stage 02 layers the simulation rules on top of the Stage 00 sandbox. This build 
 
 ## 3. Inspect the state-driven HUD
 - Walk around for ~10 seconds at different speeds and confirm Total Time advances proportionally to the selected multiplier.
-- Click **Builder** once to switch the order label to `build (x.x)` and watch the progress bar start filling only after the wood stock drains to `0/10`.
-- Allow the build to finish; verify the floor counter increments to **2**, the new wood requirement becomes `15`, and progress resets to `0%`.
+- Click **Builder** once so the button label shows `build (x.x)` and confirm the wood bar immediately reserves the full requirement (`0/10` on floor 1).
+- Let construction finish; Floor should advance to **2**, Wood Stock should jump to `0/15`, and the progress bar should reset.
 
-## 4. Validate stamina behaviour
-- With both workers idle, wait a few seconds and watch their stamina in the button labels climb back toward `5.0`.
-- Set Builder to **build** and Delivery to **deliver**. Observe:
-  - Builder consumes **3** stamina immediately when construction begins.
-  - Delivery loses **0.5** stamina with each completed trip and the wood bar climbs toward its target.
-  - When either worker hits `0`, their order automatically flips back to idle and a status bubble explains why.
+## 4. Worker orders & pathing
+- Set **Builder** to build. Watch them jog from their current spot to the highlighted edge of the MCS zone, snap beside it, and only then begin filling the progress bar.
+- While building, verify the builder stays locked beside the site (no wandering) and the status card above their head shows `build · x.x/5`.
+- Toggle the Builder back to idle and confirm they resume slow wandering with a single hop animation.
 
-## 5. Coffee perk flow
-- Move to the Starbucks zone and press **Space** to pick up a coffee (a bubble should confirm).
-- Approach an exhausted worker and press **Space** again to instantly refill both stamina bars back to `5.0`.
-- Try interacting while already holding coffee to see the “hands full” response.
+## 5. Delivery runs & rest cycle
+- Assign **Delivery** to deliver. They should march to the wood house, pause briefly to load, and then hike back to the MCS edge before the wood bar increases.
+- Watch stamina: each trip should shave a smaller amount (~0.35) so they can manage several deliveries before tiring.
+- Let either worker drain stamina to `0`. They should immediately path to the dorm, fade out for an extended breather, then reappear beside the dorm once fully recovered.
 
-## 6. Interaction bubbles & tooltips
-- Stand near each landmark (MCS, wood house, Starbucks, dorm) and press **Space** to read the contextual description.
-- Trigger **Space** near a worker to check their live stamina readout.
-- Make sure the interaction bubble continues to anchor above the player’s head while moving.
+## 6. Coffee perk flow
+- Grab a drink from Starbucks with **Space** and confirm the bright “LATTE” badge hovers above the player.
+- Deliver it to a resting worker: they should pop back out of the dorm instantly, with stamina topped up and their button label back to `idle (5.0)`.
+- Attempt to grab another drink while holding one to see the "hands full" warning.
 
-## 7. Worker motion & collisions
-- Let both workers idle and confirm they wander slowly, hop once when entering idle, and continue to block the player just like buildings.
-- While workers are assigned to build/deliver, verify they stay planted (no idle wandering) yet still collide properly with the player and obstacles.
+## 7. Interaction cues & collisions
+- Stand near each landmark (MCS, wood house, Starbucks, dorm) and press **Space** to read the contextual description in the brighter bubble.
+- Hover near a worker and press **Space** to check their stamina readout; confirm invisible/resting workers cannot be targeted.
+- Ensure workers still block player movement while active, yet players can slide around obstacles and ponds retain their blue tint variety.
 
 ## 8. Record feedback
 Capture any observations about:
