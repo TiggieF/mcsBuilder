@@ -1,40 +1,42 @@
 # Stage 00 — Playtest & Feedback Guide
 
-Welcome back to the Stage 00 scaffold of **mcsBuilder**. This revision keeps the original controls while refreshing the map layout and presentation. Follow the steps below to validate the new build, confirm Stage 00 deliverables, and capture any feedback before we advance to the next stage.
+Stage 00 now leans harder into the pixel-sim vibe while widening the map and adding randomized obstacles. Use this checklist to exercise every system, confirm nothing regressed, and capture feedback before we lock the scaffold.
 
 ## 1. Launch the build
 1. Open `index.html` directly in a modern desktop browser (Chrome/Firefox).
-2. Allow the window to display the full canvas (1020×600) alongside the control panel without scrolling.
+2. Resize the window so the 1140×600 canvas and the control panel sit side-by-side without scrolling.
 
 ## 2. Learn the controls
-- **W / A / S / D** – Move the player around the map.
-- **Space** – Trigger the contextual interaction bubble (text placeholder) when standing near a zone or worker.
-- **UI Buttons** – Click Pause, Speed, Contrast, and Worker buttons to observe the current placeholder responses.
+- **W / A / S / D** – Move the player around the map; collisions should stop you from walking through structures or rocks.
+- **Space** – Trigger the interaction bubble when standing near a zone; the text bubble should anchor over the player’s head.
+- **UI Buttons** – Pause/Resume, cycle speeds (0.5× → 1× → 2× → 3× → 4×), toggle contrast, or ping each worker.
 
-## 3. Explore the map
-1. Traverse the 34×20 grid to visit each zone:
-   - MCS construction site (now a 5×5 tile build in the center).
-   - Wood house (2×2 tiles, random placement each load).
-   - Starbucks kiosk (2×2 tiles, random placement each load).
-   - Dorm beds (2×2 tiles, random placement each load).
-2. Refresh the page a few times to confirm the three small buildings relocate without overlapping each other or the MCS footprint.
-3. Verify collision boundaries prevent walking through any structure, regardless of placement.
-4. Check that worker placeholders remain on the map with floating "idle" labels above their heads.
+## 3. Explore the randomized map
+1. The grid is now 38×20 tiles. Each page load should shuffle:
+   - A 5×5 MCS build (now placed in a random valid location).
+   - 2×2 Starbucks, wood house, and dorm structures (no overlaps).
+   - A handful of tetris-style rock clusters that block paths but always leave at least one route between zones.
+2. Refresh the page several times to confirm the shuffles respect spacing and still allow navigation between every landmark.
+3. Verify the player cannot clip through any structure or rock regardless of the layout.
 
-## 4. Confirm the HUD & panel
-- HUD now shows wood stock as a fraction (e.g., `1/5`), plus floor level, progress percentage, and total elapsed time.
-- Control panel still contains Pause, Speed, Contrast, and Worker action buttons with placeholder interactions.
-- Contrast toggle flips between default and high-contrast palettes.
+## 4. Observe the crew
+- Worker sprites should appear grey when idle, wander slowly with small random walks, and perform a one-time “Mario hop” when they become idle (or when you poke them in the panel).
+- “Idle” labels should float above their heads, updating instantly if you interact via the panel buttons.
 
-## 5. Visual polish to review
-- Canvas background uses a pixelated grass texture inspired by the provided reference art.
-- Buildings render with pixel-style patterns and silhouettes; make sure the vibe matches what you expect for Stage 00.
-- Interaction bubbles should appear above the player’s head when triggered.
+## 5. Confirm the HUD & pacing tools
+- Wood stock and build progress now display as animated progress bars with their values centered inside the bar.
+- Total time continues counting while unpaused; ensure the floor readout stays at 1.
+- Cycle through each speed tier (including the new 3× and 4× options) to make sure movement, timers, and progress all accelerate together.
 
-## 6. Capture your feedback
-Record any notes about:
-- Visual clarity, sizing, or layout quirks (especially with the wider map).
-- Input responsiveness, collision bugs, or interaction bubble placement.
-- Additional UI tweaks desired before Stage 01.
+## 6. Visual polish to review
+- The grass, buildings, rocks, and characters should all present as crisp pixel art with no antialiasing.
+- Interaction bubbles track above the player’s head even while moving.
+- Confirm high-contrast mode still flips the palette appropriately.
 
-Share this feedback during the stage approval review so the next iteration can incorporate your findings. Enjoy exploring Stage 00!
+## 7. Capture your feedback
+Log anything noteworthy:
+- Unexpected rock placements that choke off paths or feel unfair.
+- Visual or collision issues introduced by the wider grid and randomization.
+- UI/UX tweaks you want before the next development stage.
+
+Share your notes during the stage approval review so we can fold them into Stage 01. Have fun exploring the new sandbox!

@@ -7,7 +7,7 @@
     :root {
       --bg: #0f1321;
       --panel-bg: #1d1e2b;
-      --panel-border: #393b52;
+      --panel-border: #3a3d55;
       --text: #f5f5f8;
       --accent: #6bd3ff;
       --hud-bg: rgba(12, 14, 24, 0.92);
@@ -41,20 +41,65 @@
     }
 
     .hud {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 1rem;
       padding: 0.75rem 1.25rem;
       background: var(--hud-bg);
       border-bottom: 2px solid var(--panel-border);
       text-transform: uppercase;
-      font-size: 0.75rem;
+      font-size: 0.7rem;
       letter-spacing: 0.08em;
+      box-sizing: border-box;
     }
 
-    .hud span.value {
+    .hud-item {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+
+    .hud-item .label {
+      opacity: 0.75;
+    }
+
+    .hud-item .value {
       color: var(--accent);
-      margin-left: 0.5rem;
+      font-size: 0.75rem;
+    }
+
+    .hud-item.bar-item {
+      gap: 0.4rem;
+    }
+
+    .bar {
+      position: relative;
+      height: 22px;
+      border: 2px solid var(--panel-border);
+      background: rgba(10, 14, 24, 0.7);
+      overflow: hidden;
+      box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.08);
+    }
+
+    .bar .fill {
+      position: absolute;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      width: 0%;
+      background: linear-gradient(90deg, #67f3a2, #2db4ff);
+      transition: width 0.25s ease-out;
+    }
+
+    .bar .bar-text {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 0.65rem;
+      color: var(--text);
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+      pointer-events: none;
     }
 
     .main-wrapper {
@@ -141,13 +186,31 @@
 </head>
 <body>
   <div class="hud">
-    <div>Wood Stock<span class="value" id="hud-wood">1/5</span></div>
-    <div>Current Floor<span class="value" id="hud-floor">1</span></div>
-    <div>Progress<span class="value" id="hud-progress">12%</span></div>
-    <div>Total Time<span class="value" id="hud-time">00:00</span></div>
+    <div class="hud-item bar-item">
+      <span class="label">Wood Stock</span>
+      <div class="bar" id="woodBar">
+        <div class="fill" id="woodFill"></div>
+        <span class="bar-text" id="woodText">1/5</span>
+      </div>
+    </div>
+    <div class="hud-item bar-item">
+      <span class="label">Progress</span>
+      <div class="bar" id="progressBar">
+        <div class="fill" id="progressFill"></div>
+        <span class="bar-text" id="progressText">12%</span>
+      </div>
+    </div>
+    <div class="hud-item">
+      <span class="label">Current Floor</span>
+      <span class="value" id="hud-floor">1</span>
+    </div>
+    <div class="hud-item">
+      <span class="label">Total Time</span>
+      <span class="value" id="hud-time">00:00</span>
+    </div>
   </div>
   <div class="main-wrapper">
-    <canvas id="gameCanvas" width="1020" height="600" aria-label="mcsBuilder stage 00 playfield"></canvas>
+    <canvas id="gameCanvas" width="1140" height="600" aria-label="mcsBuilder stage 00 playfield"></canvas>
     <aside class="panel" aria-label="control panel">
       <h2>Control Panel</h2>
       <button id="pauseBtn" type="button">Pause</button>
@@ -167,50 +230,59 @@
     const ctx = canvas.getContext('2d');
     ctx.imageSmoothingEnabled = false;
 
-    const grid = { cols: 34, rows: 20, cell: 30 };
+    const grid = { cols: 38, rows: 20, cell: 30 };
     const frameDuration = 1000 / 30;
 
     canvas.width = grid.cols * grid.cell;
     canvas.height = grid.rows * grid.cell;
-
-    const player = {
-      x: Math.floor(grid.cols / 2) * grid.cell - 15,
-      y: (grid.rows - 3) * grid.cell,
-      width: 26,
-      height: 26,
-      speed: 150,
-      color: '#f9f871'
-    };
 
     const textures = {
       grass: createGrassPattern('#264620', '#2f5a28', '#1f3c17'),
       mcs: createStripedPattern('#3c496f', '#4f6290'),
       building: createBrickPattern('#7b5432', '#5b3b20'),
       cafe: createBrickPattern('#234338', '#1a3127'),
-      dorm: createStripedPattern('#4a3562', '#6b4a87')
+      dorm: createStripedPattern('#4a3562', '#6b4a87'),
+      rock: createRockPattern('#565c6a', '#2e323c', '#8b929f')
     };
 
-    const zones = generateZones(player);
+    const zones = generateZones();
+    const zoneEdgeMap = zones.map(getZoneEdgeCells);
+    const baseBlocked = createBlockedSetFromZones(zones);
 
-    const workers = [
-      { name: 'Builder', x: (grid.cols / 2 - 1.5) * grid.cell, y: (grid.rows / 2 + 1) * grid.cell, color: '#ffd166', state: 'idle' },
-      { name: 'Delivery', x: (grid.cols / 2 + 1.5) * grid.cell, y: (grid.rows / 2 + 1.5) * grid.cell, color: '#4cc9f0', state: 'idle' }
-    ];
+    let playerCell = findPlayerStartCell(baseBlocked);
+    const rocks = generateRocks(zones, playerCell, zoneEdgeMap);
+    const blockedCells = createBlockedSet(zones, rocks);
+
+    if (blockedCells.has(cellKey(playerCell))) {
+      playerCell = findNearestWalkableCell(playerCell, blockedCells);
+    }
+
+    const rockTiles = buildRockTiles(rocks);
+    const solidRects = [...zones, ...rockTiles];
+
+    const player = createPlayer(playerCell);
+
+    const workers = createWorkers(playerCell, blockedCells);
 
     const keys = {};
     let isPaused = false;
-    let speedMultiplier = 1;
+    const speedOptions = [0.5, 1, 2, 3, 4];
+    let speedIndex = speedOptions.indexOf(1);
+    let speedMultiplier = speedOptions[speedIndex];
     let progress = 0.12;
     let totalTime = 0;
     const woodStock = { current: 1, capacity: 5 };
     let bubbleTimeout = null;
 
     const statusEl = document.getElementById('panelStatus');
-    const hudWood = document.getElementById('hud-wood');
     const hudFloor = document.getElementById('hud-floor');
-    const hudProgress = document.getElementById('hud-progress');
     const hudTime = document.getElementById('hud-time');
+    const woodFill = document.getElementById('woodFill');
+    const woodText = document.getElementById('woodText');
+    const progressFill = document.getElementById('progressFill');
+    const progressText = document.getElementById('progressText');
     const bubble = document.getElementById('textBubble');
+    const workerButtons = Array.from(document.querySelectorAll('.worker-btn'));
     bubble.style.display = 'none';
 
     function rectsOverlap(a, b) {
@@ -229,6 +301,10 @@
       };
     }
 
+    function cellKey(cell) {
+      return `${cell.col},${cell.row}`;
+    }
+
     function formatTime(seconds) {
       const mins = Math.floor(seconds / 60).toString().padStart(2, '0');
       const secs = Math.floor(seconds % 60).toString().padStart(2, '0');
@@ -236,9 +312,13 @@
     }
 
     function updateHUD() {
-      hudWood.textContent = `${woodStock.current}/${woodStock.capacity}`;
       hudFloor.textContent = '1';
-      hudProgress.textContent = `${Math.round(progress * 100)}%`;
+      woodText.textContent = `${woodStock.current}/${woodStock.capacity}`;
+      const woodPercent = Math.max(0, Math.min(1, woodStock.current / woodStock.capacity)) * 100;
+      woodFill.style.width = `${woodPercent}%`;
+      const progressPercent = Math.max(0, Math.min(1, progress)) * 100;
+      progressText.textContent = `${Math.round(progressPercent)}%`;
+      progressFill.style.width = `${progressPercent}%`;
       hudTime.textContent = formatTime(totalTime);
     }
 
@@ -250,13 +330,13 @@
       tctx.fillStyle = primary;
       tctx.fillRect(0, 0, tile.width, tile.height);
       tctx.fillStyle = secondary;
-      for (let i = 0; i < 45; i++) {
+      for (let i = 0; i < 50; i++) {
         const x = Math.floor(Math.random() * tile.width);
         const y = Math.floor(Math.random() * tile.height);
         tctx.fillRect(x, y, 1, 1);
       }
       tctx.fillStyle = accent;
-      for (let i = 0; i < 18; i++) {
+      for (let i = 0; i < 20; i++) {
         const x = Math.floor(Math.random() * tile.width);
         const y = Math.floor(Math.random() * tile.height);
         tctx.fillRect(x, y, 1, 1);
@@ -297,49 +377,70 @@
       return ctx.createPattern(tile, 'repeat');
     }
 
-    function generateZones(playerRef) {
+    function createRockPattern(primary, shadow, highlight) {
+      const tile = document.createElement('canvas');
+      tile.width = 24;
+      tile.height = 24;
+      const tctx = tile.getContext('2d');
+      tctx.fillStyle = shadow;
+      tctx.fillRect(0, 0, tile.width, tile.height);
+      tctx.fillStyle = primary;
+      for (let i = 0; i < 26; i++) {
+        const x = Math.floor(Math.random() * tile.width);
+        const y = Math.floor(Math.random() * tile.height);
+        const size = Math.random() > 0.8 ? 2 : 1;
+        tctx.fillRect(x, y, size, size);
+      }
+      tctx.fillStyle = highlight;
+      for (let i = 0; i < 10; i++) {
+        const x = Math.floor(Math.random() * tile.width);
+        const y = Math.floor(Math.random() * tile.height);
+        tctx.fillRect(x, y, 1, 1);
+      }
+      return ctx.createPattern(tile, 'repeat');
+    }
+
+    function generateZones() {
       const placed = [];
       const zones = [];
 
-      const mcs = {
-        name: 'MCS Construction',
-        description: 'Future site of the Computer Science building.',
-        x: Math.floor(grid.cols / 2 - 2.5) * grid.cell,
-        y: Math.floor(grid.rows / 2 - 2.5) * grid.cell,
-        width: 5 * grid.cell,
-        height: 5 * grid.cell,
-        color: textures.mcs,
-        solid: true
-      };
-      zones.push(mcs);
-      placed.push(mcs);
-
       const configs = [
+        {
+          name: 'MCS Construction',
+          description: 'Future site of the Computer Science building.',
+          tilesWide: 5,
+          tilesHigh: 5,
+          color: textures.mcs,
+          padding: grid.cell
+        },
         {
           name: 'Wood House',
           description: 'Stockpile for framing lumber.',
           tilesWide: 2,
           tilesHigh: 2,
-          color: textures.building
+          color: textures.building,
+          padding: grid.cell * 0.75
         },
         {
           name: 'Starbucks',
           description: 'Quick caffeine stop for the crew.',
           tilesWide: 2,
           tilesHigh: 2,
-          color: textures.cafe
+          color: textures.cafe,
+          padding: grid.cell * 0.75
         },
         {
           name: 'Dorm Beds',
           description: 'Where exhausted workers rest up.',
           tilesWide: 2,
           tilesHigh: 2,
-          color: textures.dorm
+          color: textures.dorm,
+          padding: grid.cell * 0.75
         }
       ];
 
       configs.forEach(config => {
-        const zone = placeRandomZone(config, placed, playerRef);
+        const zone = placeRandomZone(config, placed, config.padding);
         zones.push(zone);
         placed.push(zone);
       });
@@ -347,12 +448,13 @@
       return zones;
     }
 
-    function placeRandomZone(config, placed, playerRef) {
+    function placeRandomZone(config, placed, padding) {
       const width = config.tilesWide * grid.cell;
       const height = config.tilesHigh * grid.cell;
       const maxCol = grid.cols - config.tilesWide;
       const maxRow = grid.rows - config.tilesHigh;
       let attempts = 0;
+
       while (attempts < 400) {
         const col = Math.floor(Math.random() * (maxCol + 1));
         const row = Math.floor(Math.random() * (maxRow + 1));
@@ -367,10 +469,8 @@
           solid: true
         };
 
-        const padded = placed.some(existing => rectsOverlap(zone, expandedRect(existing, grid.cell * 0.75)));
-        const blocksPlayer = playerRef && rectsOverlap(zone, expandedRect(playerRef, grid.cell));
-
-        if (!padded && !blocksPlayer) {
+        const overlaps = placed.some(existing => rectsOverlap(zone, expandedRect(existing, padding)));
+        if (!overlaps) {
           return zone;
         }
         attempts += 1;
@@ -385,6 +485,289 @@
         height,
         color: config.color,
         solid: true
+      };
+    }
+
+    function createBlockedSetFromZones(zones) {
+      const set = new Set();
+      zones.forEach(zone => markZoneCells(set, zone));
+      return set;
+    }
+
+    function createBlockedSet(zones, rocks) {
+      const set = createBlockedSetFromZones(zones);
+      rocks.forEach(rock => {
+        rock.cells.forEach(cell => set.add(cellKey(cell)));
+      });
+      return set;
+    }
+
+    function markZoneCells(set, zone) {
+      const startCol = Math.floor(zone.x / grid.cell);
+      const startRow = Math.floor(zone.y / grid.cell);
+      const cols = Math.floor(zone.width / grid.cell);
+      const rows = Math.floor(zone.height / grid.cell);
+      for (let c = 0; c < cols; c++) {
+        for (let r = 0; r < rows; r++) {
+          set.add(cellKey({ col: startCol + c, row: startRow + r }));
+        }
+      }
+    }
+
+    function findPlayerStartCell(blockedSet) {
+      const preferred = { col: Math.floor(grid.cols / 2), row: grid.rows - 2 };
+      if (!blockedSet.has(cellKey(preferred))) {
+        return preferred;
+      }
+      return findNearestWalkableCell(preferred, blockedSet);
+    }
+
+    function findNearestWalkableCell(start, blockedSet) {
+      const queue = [start];
+      const visited = new Set([cellKey(start)]);
+
+      while (queue.length > 0) {
+        const cell = queue.shift();
+        const key = cellKey(cell);
+        if (withinGrid(cell.col, cell.row) && !blockedSet.has(key)) {
+          return cell;
+        }
+
+        const neighbors = [
+          { col: cell.col + 1, row: cell.row },
+          { col: cell.col - 1, row: cell.row },
+          { col: cell.col, row: cell.row + 1 },
+          { col: cell.col, row: cell.row - 1 }
+        ];
+
+        neighbors.forEach(neighbor => {
+          const nKey = cellKey(neighbor);
+          if (!visited.has(nKey) && withinGrid(neighbor.col, neighbor.row)) {
+            visited.add(nKey);
+            queue.push(neighbor);
+          }
+        });
+      }
+
+      return { col: 1, row: 1 };
+    }
+
+    function withinGrid(col, row) {
+      return col >= 0 && row >= 0 && col < grid.cols && row < grid.rows;
+    }
+
+    function generateRocks(zones, startCell, zoneEdgeMap) {
+      const occupancy = createBlockedSetFromZones(zones);
+      const rocks = [];
+      const templates = [
+        [[0, 0], [1, 0], [0, 1], [1, 1]],
+        [[0, 0], [1, 0], [2, 0], [1, 1]],
+        [[0, 0], [0, 1], [1, 1], [2, 1]],
+        [[0, 0], [1, 0], [1, 1], [2, 1]],
+        [[0, 0], [0, 1], [0, 2], [1, 2]],
+        [[0, 0], [1, 0], [2, 0], [2, 1]],
+        [[0, 0], [1, 0], [1, 1], [1, 2]]
+      ];
+
+      const rockCount = Math.floor(Math.random() * 3) + 3;
+
+      for (let i = 0; i < rockCount; i++) {
+        let placed = false;
+        let attempts = 0;
+
+        while (!placed && attempts < 250) {
+          attempts += 1;
+          let shape = templates[Math.floor(Math.random() * templates.length)].map(point => point.slice());
+          if (Math.random() > 0.5) {
+            shape = flipShape(shape);
+          }
+          const rotations = Math.floor(Math.random() * 4);
+          shape = rotateShape(shape, rotations);
+
+          const bounds = getShapeBounds(shape);
+          const maxCol = Math.max(0, grid.cols - bounds.width);
+          const maxRow = Math.max(0, grid.rows - bounds.height);
+          const originCol = Math.floor(Math.random() * (maxCol + 1));
+          const originRow = Math.floor(Math.random() * (maxRow + 1));
+
+          const cells = shape.map(([col, row]) => ({ col: originCol + col, row: originRow + row }));
+
+          if (cells.some(cell => !withinGrid(cell.col, cell.row))) {
+            continue;
+          }
+          if (cells.some(cell => occupancy.has(cellKey(cell)))) {
+            continue;
+          }
+          if (cells.some(cell => cell.col === startCell.col && cell.row === startCell.row)) {
+            continue;
+          }
+
+          cells.forEach(cell => occupancy.add(cellKey(cell)));
+
+          if (ensureConnectivity(occupancy, startCell, zoneEdgeMap)) {
+            rocks.push({ cells });
+            placed = true;
+          } else {
+            cells.forEach(cell => occupancy.delete(cellKey(cell)));
+          }
+        }
+      }
+
+      return rocks;
+    }
+
+    function rotateShape(shape, times) {
+      let result = shape.map(([col, row]) => [col, row]);
+      for (let i = 0; i < times; i++) {
+        result = result.map(([col, row]) => [row, -col]);
+        const minCol = Math.min(...result.map(point => point[0]));
+        const minRow = Math.min(...result.map(point => point[1]));
+        result = result.map(([col, row]) => [col - minCol, row - minRow]);
+      }
+      return result;
+    }
+
+    function flipShape(shape) {
+      const maxCol = Math.max(...shape.map(point => point[0]));
+      return shape.map(([col, row]) => [maxCol - col, row]);
+    }
+
+    function getShapeBounds(shape) {
+      const maxCol = Math.max(...shape.map(point => point[0]));
+      const maxRow = Math.max(...shape.map(point => point[1]));
+      return { width: maxCol + 1, height: maxRow + 1 };
+    }
+
+    function ensureConnectivity(occupancy, startCell, zoneEdgeMap) {
+      if (!withinGrid(startCell.col, startCell.row) || occupancy.has(cellKey(startCell))) {
+        return false;
+      }
+      const reachable = floodFill(occupancy, startCell);
+      return zoneEdgeMap.every(edges => edges.some(cell => {
+        const key = cellKey(cell);
+        return !occupancy.has(key) && reachable.has(key);
+      }));
+    }
+
+    function floodFill(occupancy, startCell) {
+      const visited = new Set();
+      const queue = [];
+      const startKey = cellKey(startCell);
+      queue.push(startCell);
+      visited.add(startKey);
+
+      while (queue.length) {
+        const cell = queue.shift();
+        const neighbors = [
+          { col: cell.col + 1, row: cell.row },
+          { col: cell.col - 1, row: cell.row },
+          { col: cell.col, row: cell.row + 1 },
+          { col: cell.col, row: cell.row - 1 }
+        ];
+
+        neighbors.forEach(neighbor => {
+          const key = cellKey(neighbor);
+          if (!visited.has(key) && withinGrid(neighbor.col, neighbor.row) && !occupancy.has(key)) {
+            visited.add(key);
+            queue.push(neighbor);
+          }
+        });
+      }
+
+      return visited;
+    }
+
+    function getZoneEdgeCells(zone) {
+      const cells = [];
+      const startCol = Math.floor(zone.x / grid.cell);
+      const startRow = Math.floor(zone.y / grid.cell);
+      const cols = Math.floor(zone.width / grid.cell);
+      const rows = Math.floor(zone.height / grid.cell);
+
+      for (let col = startCol; col < startCol + cols; col++) {
+        cells.push({ col, row: startRow - 1 });
+        cells.push({ col, row: startRow + rows });
+      }
+      for (let row = startRow; row < startRow + rows; row++) {
+        cells.push({ col: startCol - 1, row });
+        cells.push({ col: startCol + cols, row });
+      }
+
+      const unique = new Map();
+      cells.forEach(cell => {
+        if (withinGrid(cell.col, cell.row)) {
+          unique.set(cellKey(cell), cell);
+        }
+      });
+      return Array.from(unique.values());
+    }
+
+    function buildRockTiles(rocks) {
+      const tiles = [];
+      rocks.forEach(rock => {
+        rock.cells.forEach(cell => {
+          tiles.push({
+            x: cell.col * grid.cell,
+            y: cell.row * grid.cell,
+            width: grid.cell,
+            height: grid.cell,
+            solid: true
+          });
+        });
+      });
+      return tiles;
+    }
+
+    function createPlayer(cell) {
+      const width = 26;
+      const height = 26;
+      return {
+        x: cell.col * grid.cell + (grid.cell - width) / 2,
+        y: cell.row * grid.cell + (grid.cell - height) / 2,
+        width,
+        height,
+        speed: 150,
+        color: '#f9f871'
+      };
+    }
+
+    function createWorkers(playerCell, blocked) {
+      const builderCell = findWorkerCell({ col: playerCell.col - 2, row: playerCell.row - 1 }, blocked);
+      const deliveryCell = findWorkerCell({ col: playerCell.col + 2, row: playerCell.row - 1 }, blocked);
+      return [
+        createWorker('Builder', builderCell, '#b8b8b8', '#ffd166'),
+        createWorker('Delivery', deliveryCell, '#9ca3ad', '#4cc9f0')
+      ];
+    }
+
+    function findWorkerCell(preferred, blocked) {
+      if (!preferred || !withinGrid(preferred.col, preferred.row) || blocked.has(cellKey(preferred))) {
+        return findNearestWalkableCell(preferred || { col: 2, row: 2 }, blocked);
+      }
+      return preferred;
+    }
+
+    function createWorker(name, cell, idleColor, accentColor) {
+      const width = 20;
+      const height = 20;
+      return {
+        name,
+        x: cell.col * grid.cell + (grid.cell - width) / 2,
+        y: cell.row * grid.cell + (grid.cell - height) / 2,
+        width,
+        height,
+        colorIdle: idleColor,
+        accentColor,
+        state: 'idle',
+        idleSpeed: 28,
+        idleCooldown: Math.random() * 1.5,
+        target: null,
+        jumping: false,
+        jumpTime: 0,
+        jumpDuration: 0.45,
+        jumpHeight: 12,
+        jumpOffset: 0,
+        hasJumped: false
       };
     }
 
@@ -403,7 +786,6 @@
       }
 
       const distance = player.speed * dt * speedMultiplier;
-      const solids = zones.filter(z => z.solid);
 
       if (vx !== 0) {
         const nextRect = {
@@ -412,7 +794,7 @@
           width: player.width,
           height: player.height
         };
-        if (!solids.some(s => rectsOverlap(nextRect, s))) {
+        if (!solidRects.some(s => rectsOverlap(nextRect, s))) {
           player.x = nextRect.x;
         }
       }
@@ -424,17 +806,132 @@
           width: player.width,
           height: player.height
         };
-        if (!solids.some(s => rectsOverlap(nextRect, s))) {
+        if (!solidRects.some(s => rectsOverlap(nextRect, s))) {
           player.y = nextRect.y;
         }
       }
 
-      player.x = Math.max(2, Math.min(player.x, canvas.width - player.width - 2));
-      player.y = Math.max(2, Math.min(player.y, canvas.height - player.height - 2));
+      player.x = clamp(player.x, 2, canvas.width - player.width - 2);
+      player.y = clamp(player.y, 2, canvas.height - player.height - 2);
+    }
+
+    function updateWorkers(dt) {
+      workers.forEach(worker => {
+        if (worker.state === 'idle' && !worker.hasJumped) {
+          triggerIdleJump(worker);
+        }
+
+        if (worker.jumping) {
+          worker.jumpTime += dt;
+          const jumpProgress = Math.min(worker.jumpTime / worker.jumpDuration, 1);
+          worker.jumpOffset = Math.sin(jumpProgress * Math.PI) * worker.jumpHeight;
+          if (jumpProgress >= 1) {
+            worker.jumping = false;
+            worker.jumpOffset = 0;
+          }
+        }
+
+        if (worker.state === 'idle') {
+          if (worker.idleCooldown > 0) {
+            worker.idleCooldown -= dt;
+          } else if (!worker.target) {
+            const target = pickTargetCell(worker, blockedCells);
+            if (target) {
+              worker.target = target;
+            }
+            worker.idleCooldown = Math.random() * 1.5 + 0.5;
+          }
+
+          if (worker.target) {
+            const centerX = worker.x + worker.width / 2;
+            const centerY = worker.y + worker.height / 2;
+            const dx = worker.target.x - centerX;
+            const dy = worker.target.y - centerY;
+            const dist = Math.hypot(dx, dy);
+
+            if (dist < 2) {
+              worker.target = null;
+            } else {
+              const step = Math.min(dist, worker.idleSpeed * dt);
+              const moveX = (dx / dist) * step;
+              const moveY = (dy / dist) * step;
+              moveWorker(worker, moveX, moveY);
+            }
+          }
+        }
+      });
+    }
+
+    function triggerIdleJump(worker) {
+      worker.hasJumped = true;
+      worker.jumping = true;
+      worker.jumpTime = 0;
+    }
+
+    function pickTargetCell(worker, blocked) {
+      const baseCol = Math.round((worker.x + worker.width / 2) / grid.cell);
+      const baseRow = Math.round((worker.y + worker.height / 2) / grid.cell);
+
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const offsetCol = getRandomInt(-4, 4);
+        const offsetRow = getRandomInt(-3, 3);
+        const col = baseCol + offsetCol;
+        const row = baseRow + offsetRow;
+        if (!withinGrid(col, row)) continue;
+        const key = `${col},${row}`;
+        if (blocked.has(key)) continue;
+        return {
+          x: col * grid.cell + grid.cell / 2,
+          y: row * grid.cell + grid.cell / 2
+        };
+      }
+
+      return null;
+    }
+
+    function moveWorker(worker, dx, dy) {
+      if (dx !== 0) {
+        const nextRect = {
+          x: worker.x + dx,
+          y: worker.y,
+          width: worker.width,
+          height: worker.height
+        };
+        if (!solidRects.some(s => rectsOverlap(nextRect, s))) {
+          worker.x = nextRect.x;
+        } else {
+          worker.target = null;
+        }
+      }
+
+      if (dy !== 0) {
+        const nextRect = {
+          x: worker.x,
+          y: worker.y + dy,
+          width: worker.width,
+          height: worker.height
+        };
+        if (!solidRects.some(s => rectsOverlap(nextRect, s))) {
+          worker.y = nextRect.y;
+        } else {
+          worker.target = null;
+        }
+      }
+
+      worker.x = clamp(worker.x, 2, canvas.width - worker.width - 2);
+      worker.y = clamp(worker.y, 2, canvas.height - worker.height - 2);
+    }
+
+    function getRandomInt(min, max) {
+      return Math.floor(Math.random() * (max - min + 1)) + min;
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
     }
 
     function drawGrid() {
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
       ctx.lineWidth = 1;
       for (let col = 1; col < grid.cols; col++) {
         const x = col * grid.cell + 0.5;
@@ -452,20 +949,39 @@
       }
     }
 
+    function drawRocks() {
+      rocks.forEach(rock => {
+        rock.cells.forEach(cell => {
+          const x = cell.col * grid.cell;
+          const y = cell.row * grid.cell;
+          ctx.fillStyle = textures.rock;
+          ctx.fillRect(x, y, grid.cell, grid.cell);
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+          ctx.fillRect(x, y + grid.cell - 6, grid.cell, 6);
+          ctx.strokeStyle = '#11141d';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(x + 1, y + 1, grid.cell - 2, grid.cell - 2);
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
+          ctx.fillRect(x + 6, y + 6, 6, 2);
+        });
+      });
+    }
+
     function drawZones() {
       zones.forEach(zone => {
-        if (zone.color instanceof CanvasPattern) {
-          ctx.fillStyle = zone.color;
-        } else {
-          ctx.fillStyle = zone.color;
-        }
+        ctx.fillStyle = zone.color instanceof CanvasPattern ? zone.color : zone.color;
         ctx.fillRect(zone.x, zone.y, zone.width, zone.height);
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
+
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+        ctx.fillRect(zone.x, zone.y, zone.width, 4);
+
+        ctx.strokeStyle = '#0a0d18';
         ctx.lineWidth = 2;
         ctx.strokeRect(zone.x, zone.y, zone.width, zone.height);
 
         ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
         ctx.fillRect(zone.x, zone.y, zone.width, 18);
+
         ctx.fillStyle = '#f7f7fb';
         ctx.font = '12px "Press Start 2P", "VT323", monospace';
         ctx.textBaseline = 'top';
@@ -476,42 +992,57 @@
     }
 
     function drawWorkers() {
-      ctx.font = '12px "Press Start 2P", "VT323", monospace';
+      ctx.font = '10px "Press Start 2P", "VT323", monospace';
       ctx.textBaseline = 'bottom';
       workers.forEach(worker => {
+        const bodyY = worker.y - worker.jumpOffset;
         ctx.fillStyle = '#00000088';
-        ctx.fillRect(worker.x - 4, worker.y + 20, 28, 8);
-        ctx.fillStyle = worker.color;
-        ctx.fillRect(worker.x, worker.y, 20, 20);
-        ctx.fillStyle = '#3a3a3a';
-        ctx.fillRect(worker.x + 4, worker.y + 4, 4, 4);
-        ctx.fillRect(worker.x + 12, worker.y + 4, 4, 4);
+        ctx.fillRect(worker.x - 4, bodyY + worker.height, worker.width + 8, 6);
+
+        ctx.fillStyle = worker.colorIdle;
+        ctx.fillRect(worker.x, bodyY, worker.width, worker.height);
+
+        ctx.fillStyle = worker.accentColor;
+        ctx.fillRect(worker.x + 2, bodyY, worker.width - 4, 5);
+
+        ctx.fillStyle = '#41434f';
+        ctx.fillRect(worker.x + 4, bodyY + 4, 4, 4);
+        ctx.fillRect(worker.x + worker.width - 8, bodyY + 4, 4, 4);
+
         ctx.fillStyle = '#f08080';
-        ctx.fillRect(worker.x + 6, worker.y + 13, 8, 5);
+        ctx.fillRect(worker.x + 6, bodyY + worker.height - 6, worker.width - 12, 4);
 
         ctx.fillStyle = '#000000aa';
-        ctx.fillRect(worker.x - 20, worker.y - 24, 60, 18);
-        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(worker.x - 18, bodyY - 24, worker.width + 36, 18);
+
+        ctx.fillStyle = '#dfe1f9';
         ctx.textAlign = 'center';
-        ctx.fillText(worker.name, worker.x + 10, worker.y - 6);
-        ctx.fillStyle = '#a6f1ff';
-        ctx.fillText(worker.state, worker.x + 10, worker.y - 18);
+        ctx.fillText(worker.name, worker.x + worker.width / 2, bodyY - 6);
+        ctx.fillStyle = '#9aa0b7';
+        ctx.fillText(worker.state, worker.x + worker.width / 2, bodyY - 18);
       });
       ctx.textAlign = 'left';
     }
 
     function drawPlayer() {
       ctx.fillStyle = '#00000088';
-      ctx.fillRect(player.x - 4, player.y + player.height, player.width + 8, 8);
-      ctx.fillStyle = '#2a2a2a';
-      ctx.fillRect(player.x + 4, player.y + 2, player.width - 8, player.height - 6);
+      ctx.fillRect(player.x - 4, player.y + player.height, player.width + 8, 6);
+
+      ctx.fillStyle = '#1d1f2f';
+      ctx.fillRect(player.x + 4, player.y + 4, player.width - 8, player.height - 8);
+
       ctx.fillStyle = player.color;
       ctx.fillRect(player.x, player.y, player.width, player.height - 6);
+
       ctx.fillStyle = '#2b2e4a';
       ctx.fillRect(player.x + 6, player.y + 4, 4, 4);
       ctx.fillRect(player.x + player.width - 10, player.y + 4, 4, 4);
-      ctx.fillStyle = '#f25f5c';
-      ctx.fillRect(player.x + 8, player.y + player.height - 12, 10, 8);
+
+      ctx.fillStyle = '#f08080';
+      ctx.fillRect(player.x + 6, player.y + player.height - 14, player.width - 12, 8);
+
+      ctx.fillStyle = '#41436a';
+      ctx.fillRect(player.x + 2, player.y + player.height - 6, player.width - 4, 6);
     }
 
     function drawScene() {
@@ -523,6 +1054,7 @@
         ctx.fillRect(0, 0, canvas.width, canvas.height);
       }
       drawGrid();
+      drawRocks();
       drawZones();
       drawWorkers();
       drawPlayer();
@@ -533,6 +1065,7 @@
         handleMovement(dt);
         totalTime += dt * speedMultiplier;
         progress = Math.min(1, progress + dt * 0.005 * speedMultiplier);
+        updateWorkers(dt * speedMultiplier);
       }
       updateHUD();
     }
@@ -575,13 +1108,8 @@
     }
 
     function cycleSpeed() {
-      if (speedMultiplier === 1) {
-        speedMultiplier = 2;
-      } else if (speedMultiplier === 2) {
-        speedMultiplier = 0.5;
-      } else {
-        speedMultiplier = 1;
-      }
+      speedIndex = (speedIndex + 1) % speedOptions.length;
+      speedMultiplier = speedOptions[speedIndex];
       document.getElementById('speedBtn').textContent = `Speed: ${speedMultiplier}×`;
       statusEl.textContent = `Speed set to ${speedMultiplier.toFixed(1)}×.`;
     }
@@ -594,8 +1122,30 @@
     }
 
     function handleWorkerClick(workerName) {
-      statusEl.textContent = `${workerName} remains idle (placeholder).`;
-      showBubble(`${workerName} acknowledges the order but keeps idling.`);
+      const worker = workers.find(w => w.name === workerName);
+      if (worker) {
+        worker.state = 'idle';
+        worker.hasJumped = false;
+        triggerIdleJump(worker);
+        worker.target = null;
+        worker.idleCooldown = Math.random() * 0.5;
+      }
+      statusEl.textContent = `${workerName} does a little idle hop.`;
+      showBubble(`${workerName} keeps idling for now.`);
+      refreshWorkerButtons();
+    }
+
+    function refreshWorkerButtons() {
+      workerButtons.forEach(btn => {
+        const workerName = btn.dataset.worker === 'builder' ? 'Builder' : 'Delivery';
+        const worker = workers.find(w => w.name === workerName);
+        if (worker) {
+          const label = btn.querySelector('span');
+          if (label) {
+            label.textContent = worker.state;
+          }
+        }
+      });
     }
 
     function positionBubble() {
@@ -604,7 +1154,7 @@
       }
       const rect = canvas.getBoundingClientRect();
       const pageX = rect.left + window.scrollX + player.x + player.width / 2;
-      const pageY = rect.top + window.scrollY + player.y - 6;
+      const pageY = rect.top + window.scrollY + player.y - 10;
       bubble.style.left = `${pageX}px`;
       bubble.style.top = `${pageY}px`;
     }
@@ -629,7 +1179,7 @@
     document.getElementById('speedBtn').addEventListener('click', cycleSpeed);
     document.getElementById('contrastBtn').addEventListener('click', toggleContrast);
 
-    document.querySelectorAll('.worker-btn').forEach(btn => {
+    workerButtons.forEach(btn => {
       btn.addEventListener('click', () => {
         const workerName = btn.dataset.worker === 'builder' ? 'Builder' : 'Delivery';
         handleWorkerClick(workerName);
@@ -637,6 +1187,7 @@
     });
 
     updateHUD();
+    refreshWorkerButtons();
     drawScene();
     setInterval(() => {
       update(1 / 30);
