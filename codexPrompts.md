@@ -96,3 +96,52 @@ Keep everything inside the same HTML.
 ## Deliverables
 - Finalized HTML (still one file)
 - Properly working movement + FSM loop
+
+# STAGE 05 — IMPLEMENT PROMPT
+
+## Goal
+Add **analytics, win condition, and polish** to the existing single HTML.
+
+## Additions
+1. **Timer**
+   - Count total seconds since start.
+   - Display formatted mm:ss in HUD.
+2. **Floor Progress**
+   - Draw progress bar or % above MCS.
+3. **Win Condition**
+   - Floor 10 complete → “Construction Complete!” message and total time.
+4. **Accessibility**
+   - High-contrast mode toggle
+   - Adjustable game speed (0.5×, 1×, 1.5×, 2×)
+5. **Visual Feedback**
+   - Label over player showing held item.
+   - Labels over workers (“fetch”, “build”, “rest”, “idle”).
+   - Bubbles for “no wood” messages.
+6. **Performance**
+   - Maintain 30 FPS
+   - Smooth update with `requestAnimationFrame`.
+
+## Deliverables
+- One polished HTML (final look & feel)
+- Game fully playable from start to finish.
+
+# STAGE 06 — IMPLEMENT PROMPT
+
+## Goal
+Finalize the project for submission as a **single self-contained HTML file**.
+
+## Tasks
+1. **Cleanup**
+   - Remove debug overlays and console logs.
+   - Inline all CSS and JS.
+2. **Metadata**
+   - Title, author (Tiger Fang), and course info in `<head>`.
+3. **Submission Packaging**
+   - Ensure game runs offline (no external dependencies).
+   - Embed all logic inline — no imports or modules.
+4. **Test Cases**
+   - Start game → Build 10 floors → Show completion screen with total time.
+
+## Deliverables
+- `mcsBuilder_final.html` (single runnable file)
+- Must open directly in browser without internet connection.

@@ -7,3 +7,11 @@
 
 **Goal**
 Improve readability and maintain standalone execution.
+
+# REFACTOR PROMPT
+
+## Focus
+- Clean up redundant functions
+- Consolidate repeated rendering code
+- Ensure A* and FSM logic readable
+- Keep inline organization: config → state → update → draw → input → loop
