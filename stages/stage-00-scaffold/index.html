@@ -5,14 +5,13 @@
   <title>mcsBuilder — Stage 00 Scaffold</title>
   <style>
     :root {
-      --bg: #16161d;
-      --panel-bg: #1f1f29;
-      --panel-border: #3a3a4d;
-      --text: #f4f4f6;
+      --bg: #0f1321;
+      --panel-bg: #1d1e2b;
+      --panel-border: #393b52;
+      --text: #f5f5f8;
       --accent: #6bd3ff;
-      --hud-bg: rgba(10, 10, 16, 0.85);
-      --grid: rgba(255, 255, 255, 0.06);
-      --bubble-bg: rgba(20, 20, 28, 0.92);
+      --hud-bg: rgba(12, 14, 24, 0.92);
+      --bubble-bg: rgba(20, 20, 30, 0.95);
       font-size: 16px;
     }
 
@@ -27,13 +26,12 @@
     }
 
     body.high-contrast {
-      --bg: #0d0d0d;
-      --panel-bg: #000;
-      --panel-border: #fff;
+      --bg: #050505;
+      --panel-bg: #000000;
+      --panel-border: #ffffff;
       --text: #ffffff;
-      --hud-bg: rgba(0, 0, 0, 0.85);
-      --grid: rgba(255, 255, 255, 0.2);
-      --bubble-bg: rgba(0, 0, 0, 0.92);
+      --hud-bg: rgba(0, 0, 0, 0.92);
+      --bubble-bg: rgba(0, 0, 0, 0.95);
     }
 
     h1, h2, h3 {
@@ -70,7 +68,8 @@
     canvas {
       border: 3px solid var(--panel-border);
       image-rendering: pixelated;
-      background: #101018;
+      background: #10181f;
+      flex-shrink: 0;
     }
 
     .panel {
@@ -118,21 +117,19 @@
 
     #textBubble {
       position: absolute;
-      top: 6.5rem;
-      left: 50%;
-      transform: translateX(-50%);
+      transform: translate(-50%, -110%);
       background: var(--bubble-bg);
       border: 2px solid var(--panel-border);
-      padding: 0.75rem 1rem;
+      padding: 0.6rem 0.9rem;
       border-radius: 6px;
       font-size: 0.7rem;
       letter-spacing: 0.05em;
-      max-width: 320px;
+      max-width: 280px;
       text-align: center;
       display: none;
       pointer-events: none;
       box-shadow: 0 6px 12px rgba(0, 0, 0, 0.4);
-      z-index: 10;
+      z-index: 20;
     }
 
     .panel .status {
@@ -144,13 +141,13 @@
 </head>
 <body>
   <div class="hud">
-    <div>Wood Stock<span class="value" id="hud-wood">120</span></div>
+    <div>Wood Stock<span class="value" id="hud-wood">1/5</span></div>
     <div>Current Floor<span class="value" id="hud-floor">1</span></div>
     <div>Progress<span class="value" id="hud-progress">12%</span></div>
     <div>Total Time<span class="value" id="hud-time">00:00</span></div>
   </div>
   <div class="main-wrapper">
-    <canvas id="gameCanvas" width="900" height="900" aria-label="mcsBuilder stage 00 playfield"></canvas>
+    <canvas id="gameCanvas" width="1020" height="600" aria-label="mcsBuilder stage 00 playfield"></canvas>
     <aside class="panel" aria-label="control panel">
       <h2>Control Panel</h2>
       <button id="pauseBtn" type="button">Pause</button>
@@ -170,65 +167,34 @@
     const ctx = canvas.getContext('2d');
     ctx.imageSmoothingEnabled = false;
 
-    const cellSize = 30;
-    const gridCount = 30;
+    const grid = { cols: 34, rows: 20, cell: 30 };
     const frameDuration = 1000 / 30;
 
+    canvas.width = grid.cols * grid.cell;
+    canvas.height = grid.rows * grid.cell;
+
     const player = {
-      x: 14 * cellSize,
-      y: 22 * cellSize,
+      x: Math.floor(grid.cols / 2) * grid.cell - 15,
+      y: (grid.rows - 3) * grid.cell,
       width: 26,
       height: 26,
       speed: 150,
       color: '#f9f871'
     };
 
-    const zones = [
-      {
-        name: 'MCS Construction',
-        description: 'Future site of the Computer Science building.',
-        x: 11 * cellSize,
-        y: 9 * cellSize,
-        width: 8 * cellSize,
-        height: 10 * cellSize,
-        color: '#556b8e',
-        solid: true
-      },
-      {
-        name: 'Wood House',
-        description: 'Stockpile for framing lumber.',
-        x: 3 * cellSize,
-        y: 6 * cellSize,
-        width: 5 * cellSize,
-        height: 6 * cellSize,
-        color: '#8b5a2b',
-        solid: true
-      },
-      {
-        name: 'Starbucks',
-        description: 'Quick caffeine stop for the crew.',
-        x: 20 * cellSize,
-        y: 4 * cellSize,
-        width: 5 * cellSize,
-        height: 5 * cellSize,
-        color: '#2f5233',
-        solid: true
-      },
-      {
-        name: 'Dorm Beds',
-        description: 'Where exhausted workers rest up.',
-        x: 6 * cellSize,
-        y: 19 * cellSize,
-        width: 7 * cellSize,
-        height: 6 * cellSize,
-        color: '#5a3f6b',
-        solid: true
-      }
-    ];
+    const textures = {
+      grass: createGrassPattern('#264620', '#2f5a28', '#1f3c17'),
+      mcs: createStripedPattern('#3c496f', '#4f6290'),
+      building: createBrickPattern('#7b5432', '#5b3b20'),
+      cafe: createBrickPattern('#234338', '#1a3127'),
+      dorm: createStripedPattern('#4a3562', '#6b4a87')
+    };
+
+    const zones = generateZones(player);
 
     const workers = [
-      { name: 'Builder', x: 15 * cellSize + 10, y: 15 * cellSize + 5, color: '#ffd166', state: 'idle' },
-      { name: 'Delivery', x: 18 * cellSize + 10, y: 17 * cellSize + 5, color: '#4cc9f0', state: 'idle' }
+      { name: 'Builder', x: (grid.cols / 2 - 1.5) * grid.cell, y: (grid.rows / 2 + 1) * grid.cell, color: '#ffd166', state: 'idle' },
+      { name: 'Delivery', x: (grid.cols / 2 + 1.5) * grid.cell, y: (grid.rows / 2 + 1.5) * grid.cell, color: '#4cc9f0', state: 'idle' }
     ];
 
     const keys = {};
@@ -236,7 +202,7 @@
     let speedMultiplier = 1;
     let progress = 0.12;
     let totalTime = 0;
-    let woodStock = 120;
+    const woodStock = { current: 1, capacity: 5 };
     let bubbleTimeout = null;
 
     const statusEl = document.getElementById('panelStatus');
@@ -245,19 +211,7 @@
     const hudProgress = document.getElementById('hud-progress');
     const hudTime = document.getElementById('hud-time');
     const bubble = document.getElementById('textBubble');
-
-    function formatTime(seconds) {
-      const mins = Math.floor(seconds / 60).toString().padStart(2, '0');
-      const secs = Math.floor(seconds % 60).toString().padStart(2, '0');
-      return `${mins}:${secs}`;
-    }
-
-    function updateHUD() {
-      hudWood.textContent = woodStock.toString();
-      hudFloor.textContent = '1';
-      hudProgress.textContent = `${Math.round(progress * 100)}%`;
-      hudTime.textContent = formatTime(totalTime);
-    }
+    bubble.style.display = 'none';
 
     function rectsOverlap(a, b) {
       return a.x < b.x + b.width &&
@@ -272,6 +226,165 @@
         y: rect.y - padding,
         width: rect.width + padding * 2,
         height: rect.height + padding * 2
+      };
+    }
+
+    function formatTime(seconds) {
+      const mins = Math.floor(seconds / 60).toString().padStart(2, '0');
+      const secs = Math.floor(seconds % 60).toString().padStart(2, '0');
+      return `${mins}:${secs}`;
+    }
+
+    function updateHUD() {
+      hudWood.textContent = `${woodStock.current}/${woodStock.capacity}`;
+      hudFloor.textContent = '1';
+      hudProgress.textContent = `${Math.round(progress * 100)}%`;
+      hudTime.textContent = formatTime(totalTime);
+    }
+
+    function createGrassPattern(primary, secondary, accent) {
+      const tile = document.createElement('canvas');
+      tile.width = 32;
+      tile.height = 32;
+      const tctx = tile.getContext('2d');
+      tctx.fillStyle = primary;
+      tctx.fillRect(0, 0, tile.width, tile.height);
+      tctx.fillStyle = secondary;
+      for (let i = 0; i < 45; i++) {
+        const x = Math.floor(Math.random() * tile.width);
+        const y = Math.floor(Math.random() * tile.height);
+        tctx.fillRect(x, y, 1, 1);
+      }
+      tctx.fillStyle = accent;
+      for (let i = 0; i < 18; i++) {
+        const x = Math.floor(Math.random() * tile.width);
+        const y = Math.floor(Math.random() * tile.height);
+        tctx.fillRect(x, y, 1, 1);
+      }
+      return ctx.createPattern(tile, 'repeat');
+    }
+
+    function createStripedPattern(primary, secondary) {
+      const tile = document.createElement('canvas');
+      tile.width = 16;
+      tile.height = 16;
+      const tctx = tile.getContext('2d');
+      tctx.fillStyle = primary;
+      tctx.fillRect(0, 0, tile.width, tile.height);
+      tctx.fillStyle = secondary;
+      for (let y = 0; y < tile.height; y += 2) {
+        tctx.fillRect(0, y, tile.width, 1);
+      }
+      return ctx.createPattern(tile, 'repeat');
+    }
+
+    function createBrickPattern(base, mortar) {
+      const tile = document.createElement('canvas');
+      tile.width = 24;
+      tile.height = 24;
+      const tctx = tile.getContext('2d');
+      tctx.fillStyle = mortar;
+      tctx.fillRect(0, 0, tile.width, tile.height);
+      tctx.fillStyle = base;
+      for (let row = 0; row < tile.height; row += 8) {
+        for (let col = (row / 8) % 2 === 0 ? 0 : 12; col < tile.width; col += 24) {
+          tctx.fillRect(col, row, 12, 6);
+        }
+        for (let col = (row / 8) % 2 === 0 ? 12 : 0; col < tile.width; col += 24) {
+          tctx.fillRect(col, row + 3, 12, 6);
+        }
+      }
+      return ctx.createPattern(tile, 'repeat');
+    }
+
+    function generateZones(playerRef) {
+      const placed = [];
+      const zones = [];
+
+      const mcs = {
+        name: 'MCS Construction',
+        description: 'Future site of the Computer Science building.',
+        x: Math.floor(grid.cols / 2 - 2.5) * grid.cell,
+        y: Math.floor(grid.rows / 2 - 2.5) * grid.cell,
+        width: 5 * grid.cell,
+        height: 5 * grid.cell,
+        color: textures.mcs,
+        solid: true
+      };
+      zones.push(mcs);
+      placed.push(mcs);
+
+      const configs = [
+        {
+          name: 'Wood House',
+          description: 'Stockpile for framing lumber.',
+          tilesWide: 2,
+          tilesHigh: 2,
+          color: textures.building
+        },
+        {
+          name: 'Starbucks',
+          description: 'Quick caffeine stop for the crew.',
+          tilesWide: 2,
+          tilesHigh: 2,
+          color: textures.cafe
+        },
+        {
+          name: 'Dorm Beds',
+          description: 'Where exhausted workers rest up.',
+          tilesWide: 2,
+          tilesHigh: 2,
+          color: textures.dorm
+        }
+      ];
+
+      configs.forEach(config => {
+        const zone = placeRandomZone(config, placed, playerRef);
+        zones.push(zone);
+        placed.push(zone);
+      });
+
+      return zones;
+    }
+
+    function placeRandomZone(config, placed, playerRef) {
+      const width = config.tilesWide * grid.cell;
+      const height = config.tilesHigh * grid.cell;
+      const maxCol = grid.cols - config.tilesWide;
+      const maxRow = grid.rows - config.tilesHigh;
+      let attempts = 0;
+      while (attempts < 400) {
+        const col = Math.floor(Math.random() * (maxCol + 1));
+        const row = Math.floor(Math.random() * (maxRow + 1));
+        const zone = {
+          name: config.name,
+          description: config.description,
+          x: col * grid.cell,
+          y: row * grid.cell,
+          width,
+          height,
+          color: config.color,
+          solid: true
+        };
+
+        const padded = placed.some(existing => rectsOverlap(zone, expandedRect(existing, grid.cell * 0.75)));
+        const blocksPlayer = playerRef && rectsOverlap(zone, expandedRect(playerRef, grid.cell));
+
+        if (!padded && !blocksPlayer) {
+          return zone;
+        }
+        attempts += 1;
+      }
+
+      return {
+        name: config.name,
+        description: config.description,
+        x: 0,
+        y: 0,
+        width,
+        height,
+        color: config.color,
+        solid: true
       };
     }
 
@@ -321,24 +434,31 @@
     }
 
     function drawGrid() {
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
       ctx.lineWidth = 1;
-      for (let i = 1; i < gridCount; i++) {
-        const pos = i * cellSize + 0.5;
+      for (let col = 1; col < grid.cols; col++) {
+        const x = col * grid.cell + 0.5;
         ctx.beginPath();
-        ctx.moveTo(pos, 0);
-        ctx.lineTo(pos, canvas.height);
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvas.height);
         ctx.stroke();
+      }
+      for (let row = 1; row < grid.rows; row++) {
+        const y = row * grid.cell + 0.5;
         ctx.beginPath();
-        ctx.moveTo(0, pos);
-        ctx.lineTo(canvas.width, pos);
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
         ctx.stroke();
       }
     }
 
     function drawZones() {
       zones.forEach(zone => {
-        ctx.fillStyle = zone.color;
+        if (zone.color instanceof CanvasPattern) {
+          ctx.fillStyle = zone.color;
+        } else {
+          ctx.fillStyle = zone.color;
+        }
         ctx.fillRect(zone.x, zone.y, zone.width, zone.height);
         ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
         ctx.lineWidth = 2;
@@ -349,41 +469,59 @@
         ctx.fillStyle = '#f7f7fb';
         ctx.font = '12px "Press Start 2P", "VT323", monospace';
         ctx.textBaseline = 'top';
-        ctx.fillText(zone.name, zone.x + 6, zone.y + 2);
+        ctx.textAlign = 'center';
+        ctx.fillText(zone.name, zone.x + zone.width / 2, zone.y + 2);
       });
+      ctx.textAlign = 'left';
     }
 
     function drawWorkers() {
       ctx.font = '12px "Press Start 2P", "VT323", monospace';
       ctx.textBaseline = 'bottom';
       workers.forEach(worker => {
+        ctx.fillStyle = '#00000088';
+        ctx.fillRect(worker.x - 4, worker.y + 20, 28, 8);
         ctx.fillStyle = worker.color;
         ctx.fillRect(worker.x, worker.y, 20, 20);
+        ctx.fillStyle = '#3a3a3a';
+        ctx.fillRect(worker.x + 4, worker.y + 4, 4, 4);
+        ctx.fillRect(worker.x + 12, worker.y + 4, 4, 4);
+        ctx.fillStyle = '#f08080';
+        ctx.fillRect(worker.x + 6, worker.y + 13, 8, 5);
+
         ctx.fillStyle = '#000000aa';
-        ctx.fillRect(worker.x - 2, worker.y - 18, 60, 16);
+        ctx.fillRect(worker.x - 20, worker.y - 24, 60, 18);
         ctx.fillStyle = '#ffffff';
-        ctx.fillText(`${worker.name}`, worker.x, worker.y - 6);
+        ctx.textAlign = 'center';
+        ctx.fillText(worker.name, worker.x + 10, worker.y - 6);
         ctx.fillStyle = '#a6f1ff';
-        ctx.fillText(worker.state, worker.x, worker.y - 18);
+        ctx.fillText(worker.state, worker.x + 10, worker.y - 18);
       });
+      ctx.textAlign = 'left';
     }
 
     function drawPlayer() {
-      ctx.fillStyle = '#000000aa';
-      ctx.fillRect(player.x - 2, player.y - 4, player.width + 4, player.height + 6);
+      ctx.fillStyle = '#00000088';
+      ctx.fillRect(player.x - 4, player.y + player.height, player.width + 8, 8);
+      ctx.fillStyle = '#2a2a2a';
+      ctx.fillRect(player.x + 4, player.y + 2, player.width - 8, player.height - 6);
       ctx.fillStyle = player.color;
-      ctx.fillRect(player.x, player.y, player.width, player.height);
-      ctx.fillStyle = '#333333';
-      ctx.fillRect(player.x + 6, player.y + 6, 4, 4);
-      ctx.fillRect(player.x + player.width - 10, player.y + 6, 4, 4);
+      ctx.fillRect(player.x, player.y, player.width, player.height - 6);
+      ctx.fillStyle = '#2b2e4a';
+      ctx.fillRect(player.x + 6, player.y + 4, 4, 4);
+      ctx.fillRect(player.x + player.width - 10, player.y + 4, 4, 4);
       ctx.fillStyle = '#f25f5c';
-      ctx.fillRect(player.x + 9, player.y + player.height - 10, 8, 6);
+      ctx.fillRect(player.x + 8, player.y + player.height - 12, 10, 8);
     }
 
     function drawScene() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = '#0e1320';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      if (textures.grass) {
+        ctx.fillStyle = textures.grass;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      } else {
+        ctx.fillStyle = '#0e1320';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
       drawGrid();
       drawZones();
       drawWorkers();
@@ -412,12 +550,13 @@
     function showBubble(message) {
       bubble.textContent = message;
       bubble.style.display = 'block';
+      positionBubble();
       if (bubbleTimeout) {
         clearTimeout(bubbleTimeout);
       }
       bubbleTimeout = setTimeout(() => {
         bubble.style.display = 'none';
-      }, 2000);
+      }, 2200);
     }
 
     function interact() {
@@ -459,6 +598,17 @@
       showBubble(`${workerName} acknowledges the order but keeps idling.`);
     }
 
+    function positionBubble() {
+      if (bubble.style.display === 'none') {
+        return;
+      }
+      const rect = canvas.getBoundingClientRect();
+      const pageX = rect.left + window.scrollX + player.x + player.width / 2;
+      const pageY = rect.top + window.scrollY + player.y - 6;
+      bubble.style.left = `${pageX}px`;
+      bubble.style.top = `${pageY}px`;
+    }
+
     document.addEventListener('keydown', (event) => {
       if (event.code === 'Space') {
         event.preventDefault();
@@ -471,6 +621,9 @@
     document.addEventListener('keyup', (event) => {
       keys[event.code] = false;
     });
+
+    window.addEventListener('resize', positionBubble);
+    window.addEventListener('scroll', positionBubble);
 
     document.getElementById('pauseBtn').addEventListener('click', togglePause);
     document.getElementById('speedBtn').addEventListener('click', cycleSpeed);
@@ -488,6 +641,7 @@
     setInterval(() => {
       update(1 / 30);
       drawScene();
+      positionBubble();
     }, frameDuration);
   </script>
 </body>
