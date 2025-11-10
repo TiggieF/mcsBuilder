@@ -236,8 +236,8 @@
     const frameDuration = 1000 / FPS;
     const MAX_STAMINA = 5;
     const STAMINA_REST_RATE = 0.25 / 1.5;
-    const STAMINA_TRIP_COST = 0.35;
-    const STAMINA_BUILD_COST = 2;
+    const STAMINA_TRIP_COST = 0.35 * 1.5;
+    const STAMINA_BUILD_COST = 2 * 1.5;
     const WORKER_ACTIVE_SPEED = 85;
     const WORKER_CARRY_SPEED = 75;
     const DELIVERY_LOAD_TIME = 1.1;
@@ -248,6 +248,7 @@
     const WOOD_PER_FLOOR = 5;
     const BUILD_BASE = 5;
     const BUILD_PER_FLOOR = 5;
+    const BUILD_PROGRESS_SLOWDOWN = 1.5;
     const PLAYER_INTERACT_COOLDOWN = 0.35;
 
     canvas.width = grid.cols * grid.cell;
@@ -280,7 +281,8 @@
     const baseBlocked = createBlockedSetFromZones(zones);
 
     let playerCell = findPlayerStartCell(baseBlocked);
-    const rocks = generateRocks(zones, playerCell, zoneEdgeMap);
+    const rockForbiddenCells = computeRockForbiddenCells(zones);
+    const rocks = generateRocks(zones, playerCell, zoneEdgeMap, rockForbiddenCells);
     const blockedCells = createBlockedSet(zones, rocks);
 
     if (blockedCells.has(cellKey(playerCell))) {
@@ -330,6 +332,130 @@
 
     function cellKey(cell) {
       return `${cell.col},${cell.row}`;
+    }
+
+    function pointToCell(point) {
+      const col = clamp(Math.floor(point.x / grid.cell), 0, grid.cols - 1);
+      const row = clamp(Math.floor(point.y / grid.cell), 0, grid.rows - 1);
+      return { col, row };
+    }
+
+    function cellToCenter(cell) {
+      return {
+        x: cell.col * grid.cell + grid.cell / 2,
+        y: cell.row * grid.cell + grid.cell / 2
+      };
+    }
+
+    function cellsEqual(a, b) {
+      return a && b && a.col === b.col && a.row === b.row;
+    }
+
+    function parseCellKey(key) {
+      const [col, row] = key.split(',').map(Number);
+      return { col, row };
+    }
+
+    function heuristic(a, b) {
+      return Math.abs(a.col - b.col) + Math.abs(a.row - b.row);
+    }
+
+    function computeDynamicBlockers(worker, goalKey) {
+      const blocked = new Set();
+      workers.forEach(other => {
+        if (other === worker || !other.visible) {
+          return;
+        }
+        const cell = pointToCell(workerCenter(other));
+        const key = cellKey(cell);
+        if (key !== goalKey) {
+          blocked.add(key);
+        }
+      });
+      const playerCellKey = cellKey(pointToCell({ x: player.x + player.width / 2, y: player.y + player.height / 2 }));
+      if (playerCellKey !== goalKey) {
+        blocked.add(playerCellKey);
+      }
+      return blocked;
+    }
+
+    function findPath(start, goal, worker) {
+      const startKey = cellKey(start);
+      const goalKey = cellKey(goal);
+      if (startKey === goalKey) {
+        return [goal];
+      }
+      if (blockedCells.has(startKey) && startKey !== goalKey) {
+        return null;
+      }
+
+      const extraBlocked = computeDynamicBlockers(worker, goalKey);
+      const open = new Map();
+      const openList = [];
+      const cameFrom = new Map();
+      const gScore = new Map();
+
+      gScore.set(startKey, 0);
+      const startNode = { cell: start, key: startKey, f: heuristic(start, goal) };
+      open.set(startKey, startNode);
+      openList.push(startNode);
+
+      while (openList.length > 0) {
+        openList.sort((a, b) => a.f - b.f);
+        const current = openList.shift();
+        open.delete(current.key);
+
+        if (current.key === goalKey) {
+          return reconstructPath(cameFrom, current.key);
+        }
+
+        const neighbors = [
+          { col: current.cell.col + 1, row: current.cell.row },
+          { col: current.cell.col - 1, row: current.cell.row },
+          { col: current.cell.col, row: current.cell.row + 1 },
+          { col: current.cell.col, row: current.cell.row - 1 }
+        ];
+
+        neighbors.forEach(neighbor => {
+          if (!withinGrid(neighbor.col, neighbor.row)) {
+            return;
+          }
+          const neighborKey = cellKey(neighbor);
+          if (extraBlocked.has(neighborKey)) {
+            return;
+          }
+          if (blockedCells.has(neighborKey) && neighborKey !== goalKey) {
+            return;
+          }
+          const tentativeG = (gScore.get(current.key) || Infinity) + 1;
+          if (tentativeG >= (gScore.get(neighborKey) || Infinity)) {
+            return;
+          }
+          cameFrom.set(neighborKey, current.key);
+          gScore.set(neighborKey, tentativeG);
+          const fScore = tentativeG + heuristic(neighbor, goal);
+          const existing = open.get(neighborKey);
+          if (existing) {
+            existing.f = fScore;
+          } else {
+            const node = { cell: neighbor, key: neighborKey, f: fScore };
+            open.set(neighborKey, node);
+            openList.push(node);
+          }
+        });
+      }
+
+      return null;
+    }
+
+    function reconstructPath(cameFrom, goalKey) {
+      const path = [];
+      let currentKey = goalKey;
+      while (currentKey) {
+        path.push(parseCellKey(currentKey));
+        currentKey = cameFrom.get(currentKey);
+      }
+      return path.reverse();
     }
 
     function getPlayerRect() {
@@ -588,6 +714,22 @@
       return zones;
     }
 
+    function computeRockForbiddenCells(zones) {
+      const forbidden = new Set();
+      zones.forEach(zone => {
+        const startCol = Math.floor(zone.x / grid.cell);
+        const startRow = Math.floor(zone.y / grid.cell);
+        const zoneTopLeft = { col: startCol, row: startRow };
+        const walkwayTopLeft = { col: startCol - 1, row: startRow - 1 };
+        [zoneTopLeft, walkwayTopLeft].forEach(cell => {
+          if (withinGrid(cell.col, cell.row)) {
+            forbidden.add(cellKey(cell));
+          }
+        });
+      });
+      return forbidden;
+    }
+
     function placeRandomZone(config, placed, padding) {
       const width = config.tilesWide * grid.cell;
       const height = config.tilesHigh * grid.cell;
@@ -696,7 +838,7 @@
       return col >= 0 && row >= 0 && col < grid.cols && row < grid.rows;
     }
 
-    function generateRocks(zones, startCell, zoneEdgeMap) {
+    function generateRocks(zones, startCell, zoneEdgeMap, forbiddenCells = new Set()) {
       const occupancy = createBlockedSetFromZones(zones);
       const rocks = [];
       const rockCount = getRandomInt(9, 15);
@@ -759,6 +901,8 @@
 
           if (!cells.length) continue;
           if (cells.some(cell => !withinGrid(cell.col, cell.row))) continue;
+          if (cells.some(cell => cell.col <= 0 || cell.row <= 0 || cell.col >= grid.cols - 1 || cell.row >= grid.rows - 1)) continue;
+          if (cells.some(cell => forbiddenCells.has(cellKey(cell)))) continue;
           if (cells.some(cell => occupancy.has(cellKey(cell)))) continue;
           if (cells.some(cell => cell.col === startCell.col && cell.row === startCell.row)) continue;
 
@@ -927,6 +1071,10 @@
         idleSpeed: WORKER_IDLE_SPEED,
         idleCooldown: Math.random() * 1.5,
         target: null,
+        path: null,
+        pathIndex: 0,
+        pathGoal: null,
+        pathNeedsRecalc: false,
         jumping: false,
         jumpTime: 0,
         jumpDuration: 0.45,
@@ -1012,7 +1160,7 @@
           } else if (!worker.target) {
             const target = pickTargetCell(worker, blockedCells);
             if (target) {
-              worker.target = target;
+              setWorkerDestination(worker, target);
             }
             worker.idleCooldown = Math.random() * 1.5 + 0.5;
           }
@@ -1020,7 +1168,7 @@
           if (worker.target) {
             const reached = moveWorkerToward(worker, worker.target, worker.idleSpeed, scaledDt);
             if (reached) {
-              worker.target = null;
+              setWorkerDestination(worker, null);
             }
           }
         }
@@ -1061,14 +1209,14 @@
 
       if (worker.activity !== 'toSite' && worker.activity !== 'building') {
         worker.activity = 'toSite';
-        worker.target = approach;
+        setWorkerDestination(worker, approach);
       }
 
       if (worker.activity === 'toSite') {
         const arrived = moveWorkerToward(worker, approach, WORKER_ACTIVE_SPEED, dt);
         if (arrived) {
           alignWorkerToCenter(worker, approach);
-          worker.target = null;
+          setWorkerDestination(worker, null);
           worker.activity = 'building';
           if (!worker.buildReserved) {
             if (state.stock.wood < state.floor.need) {
@@ -1090,10 +1238,10 @@
       if (worker.activity === 'building') {
         if (!worker.buildReserved) {
           worker.activity = 'toSite';
-          worker.target = approach;
+          setWorkerDestination(worker, approach);
           return;
         }
-        const progressGain = dt / state.floor.buildTime;
+        const progressGain = dt / (state.floor.buildTime * BUILD_PROGRESS_SLOWDOWN);
         state.floor.progress = Math.min(1, state.floor.progress + progressGain);
         if (state.floor.progress >= 1) {
           worker.buildReserved = false;
@@ -1112,7 +1260,7 @@
 
       if (!['toWood', 'loading', 'toMcs', 'delivering'].includes(worker.activity)) {
         worker.activity = 'toWood';
-        worker.target = woodApproach;
+        setWorkerDestination(worker, woodApproach);
       }
 
       if (worker.activity === 'toWood') {
@@ -1121,6 +1269,7 @@
           alignWorkerToCenter(worker, woodApproach);
           worker.activity = 'loading';
           worker.taskTimer = 0;
+          setWorkerDestination(worker, null);
         }
         return;
       }
@@ -1136,7 +1285,7 @@
           }
           worker.inv = Math.min(1, remaining);
           worker.activity = 'toMcs';
-          worker.target = mcsApproach;
+          setWorkerDestination(worker, mcsApproach);
         }
         return;
       }
@@ -1157,13 +1306,13 @@
           worker.taskTimer = 0;
           if (worker.inv <= 0) {
             worker.activity = 'toWood';
-            worker.target = woodApproach;
+            setWorkerDestination(worker, woodApproach);
             return;
           }
           const room = Math.max(0, state.floor.need - state.stock.wood);
           if (room <= 0) {
             worker.activity = 'toWood';
-            worker.target = woodApproach;
+            setWorkerDestination(worker, woodApproach);
             setWorkerOrder(worker, 'idle', 'Wood stock is full for this floor.');
             return;
           }
@@ -1177,7 +1326,7 @@
             return;
           }
           worker.activity = 'toWood';
-          worker.target = woodApproach;
+          setWorkerDestination(worker, woodApproach);
         }
       }
     }
@@ -1191,7 +1340,7 @@
       if (worker.activity !== 'toDorm' && worker.activity !== 'resting') {
         worker.activity = 'toDorm';
         worker.visible = true;
-        worker.target = dormApproach;
+        setWorkerDestination(worker, dormApproach);
         worker.restAnchor = dormApproach;
       }
 
@@ -1199,6 +1348,7 @@
         const arrived = moveWorkerToward(worker, dormApproach, WORKER_ACTIVE_SPEED, dt);
         if (arrived) {
           alignWorkerToCenter(worker, dormApproach);
+          setWorkerDestination(worker, null);
           worker.activity = 'resting';
           worker.visible = false;
         }
@@ -1257,6 +1407,7 @@
     }
 
     function moveWorker(worker, dx, dy) {
+      let moved = false;
       const collisionRects = getCollisionRects({ includeWorkers: true, excludeWorker: worker, includePlayer: true });
 
       if (dx !== 0) {
@@ -1268,8 +1419,9 @@
         };
         if (!collisionRects.some(s => rectsOverlap(nextRect, s))) {
           worker.x = nextRect.x;
-        } else {
-          worker.target = null;
+          moved = true;
+        } else if (Math.abs(dx) > 0.01) {
+          worker.pathNeedsRecalc = true;
         }
       }
 
@@ -1282,19 +1434,18 @@
         };
         if (!collisionRects.some(s => rectsOverlap(nextRect, s))) {
           worker.y = nextRect.y;
-        } else {
-          worker.target = null;
+          moved = true;
+        } else if (Math.abs(dy) > 0.01) {
+          worker.pathNeedsRecalc = true;
         }
       }
 
       worker.x = clamp(worker.x, 2, canvas.width - worker.width - 2);
       worker.y = clamp(worker.y, 2, canvas.height - worker.height - 2);
+      return moved;
     }
 
-    function moveWorkerToward(worker, target, speed, dt) {
-      if (!target) {
-        return false;
-      }
+    function moveTowardPoint(worker, target, speed, dt) {
       const center = workerCenter(worker);
       const dx = target.x - center.x;
       const dy = target.y - center.y;
@@ -1310,11 +1461,80 @@
       const ratio = Math.min(1, step / distance);
       const moveX = dx * ratio;
       const moveY = dy * ratio;
-      moveWorker(worker, moveX, 0);
-      moveWorker(worker, 0, moveY);
-      worker.target = target;
+      const movedX = moveWorker(worker, moveX, 0);
+      const movedY = moveWorker(worker, 0, moveY);
+      if ((!movedX && Math.abs(moveX) > 0.01) || (!movedY && Math.abs(moveY) > 0.01)) {
+        worker.pathNeedsRecalc = true;
+      }
       const newCenter = workerCenter(worker);
       return Math.hypot(target.x - newCenter.x, target.y - newCenter.y) <= WORKER_APPROACH_BUFFER;
+    }
+
+    function ensureWorkerPath(worker, target) {
+      if (!target) {
+        return;
+      }
+      const goalCell = pointToCell(target);
+      const goalKey = cellKey(goalCell);
+      if (!worker.path || worker.pathNeedsRecalc || worker.pathGoal !== goalKey) {
+        const startCell = pointToCell(workerCenter(worker));
+        const pathCells = findPath(startCell, goalCell, worker);
+        if (pathCells && pathCells.length > 0) {
+          if (cellsEqual(pathCells[0], startCell)) {
+            pathCells.shift();
+          }
+          worker.path = pathCells.map(cellToCenter);
+          worker.pathIndex = 0;
+        } else {
+          worker.path = null;
+          worker.pathIndex = 0;
+        }
+        worker.pathGoal = goalKey;
+        worker.pathNeedsRecalc = false;
+      }
+    }
+
+    function setWorkerDestination(worker, target) {
+      if (!target) {
+        worker.target = null;
+        worker.path = null;
+        worker.pathIndex = 0;
+        worker.pathGoal = null;
+        worker.pathNeedsRecalc = false;
+        return;
+      }
+      worker.target = target;
+      worker.pathNeedsRecalc = true;
+      worker.pathGoal = null;
+    }
+
+    function moveWorkerToward(worker, target, speed, dt) {
+      if (!target) {
+        return false;
+      }
+
+      ensureWorkerPath(worker, target);
+
+      if (worker.path && worker.pathIndex < worker.path.length) {
+        const waypoint = worker.path[worker.pathIndex];
+        if (moveTowardPoint(worker, waypoint, speed, dt)) {
+          worker.pathIndex += 1;
+        }
+        if (worker.pathIndex < worker.path.length) {
+          return false;
+        }
+      }
+
+      const arrived = moveTowardPoint(worker, target, speed, dt);
+      if (arrived) {
+        worker.path = null;
+        worker.pathIndex = 0;
+        worker.pathGoal = null;
+        worker.pathNeedsRecalc = false;
+        return true;
+      }
+
+      return false;
     }
 
     function getRandomInt(min, max) {
@@ -1684,7 +1904,7 @@
       worker.order = newOrder;
       if (newOrder === 'idle') {
         worker.orderStarted = false;
-        worker.target = null;
+        setWorkerDestination(worker, null);
         worker.tripTimer = 0;
         worker.idleCooldown = Math.random() * 0.6;
         worker.hasJumped = false;
@@ -1693,22 +1913,22 @@
         worker.inv = 0;
         worker.visible = true;
       } else {
-        worker.target = null;
+        setWorkerDestination(worker, null);
         if (newOrder === 'build') {
           worker.orderStarted = false;
           worker.buildReserved = false;
           worker.activity = 'toSite';
-          worker.target = getApproachCenter('MCS Construction');
+          setWorkerDestination(worker, getApproachCenter('MCS Construction'));
         }
         if (newOrder === 'deliver') {
           worker.tripTimer = 0;
           worker.inv = 0;
           worker.activity = 'toWood';
-          worker.target = getApproachCenter('Wood House');
+          setWorkerDestination(worker, getApproachCenter('Wood House'));
         }
         if (newOrder === 'rest') {
           worker.activity = 'toDorm';
-          worker.target = getApproachCenter('Dorm Beds');
+          setWorkerDestination(worker, getApproachCenter('Dorm Beds'));
           worker.restAnchor = null;
           worker.visible = true;
           worker.inv = 0;
