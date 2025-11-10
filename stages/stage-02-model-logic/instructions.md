@@ -8,8 +8,9 @@ Stage 02 layers the simulation rules on top of the Stage 00 sandbox. This build 
 
 ## 2. Baseline sanity check
 - Confirm the HUD shows Floor **1**, Wood Stock `2/10`, Progress `0%`, and Total Time `00:00` on load.
-- Toggle Pause, Speed, and Contrast to make sure the new state timer respects pausing and the speed button now cycles through 0.5× → 1× → 2× → 3× → 4×.
+- Toggle Pause, Speed, and Contrast to make sure the new state timer respects pausing and the speed button now cycles through 0.5× → 1× → 2× → 3× → 4× → 8× → 16×.
 - Scan the playfield and confirm ponds and rock clusters avoid hugging the canvas edge or the top-left corners of any functional buildings.
+- Confirm the MCS, dorm, wood house, and Starbucks all spawn with a tile of breathing room between their walls, the canvas edge, and any obstacle clusters.
 
 ## 3. Inspect the state-driven HUD
 - Walk around for ~10 seconds at different speeds and confirm Total Time advances proportionally to the selected multiplier.
@@ -22,6 +23,7 @@ Stage 02 layers the simulation rules on top of the Stage 00 sandbox. This build 
 - While building, verify the builder stays locked beside the site (no wandering) and the status card above their head shows `build · x.x/5`.
 - While they travel, make sure they snake around rocks/ponds instead of getting stuck — the new pathfinding should re-route around obstacles every time.
 - Toggle the Builder back to idle and confirm they resume slow wandering with a single hop animation.
+- Let a build finish while the builder has less than 2.5 stamina left; they should automatically walk to the dorm and vanish until fully recovered.
 
 ## 5. Delivery runs & rest cycle
 - Assign **Delivery** to deliver. They should march to the wood house, pause briefly to load, and then hike back to the MCS edge before the wood bar increases.

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>mcsBuilder — Stage 02 Systems Prototype</title>
+  <title>mcsBuilder — Stage 04 UI & FSM Prototype</title>
   <style>
     :root {
       --bg: #0f1321;
@@ -151,13 +151,96 @@
     .panel .worker-group {
       display: flex;
       flex-direction: column;
+      gap: 1rem;
+    }
+
+    .worker-card {
+      border: 2px solid var(--panel-border);
+      background: rgba(12, 14, 24, 0.6);
+      border-radius: 8px;
+      padding: 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+    }
+
+    .worker-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .worker-header h3 {
+      margin: 0;
+      font-size: 0.75rem;
+    }
+
+    .worker-header .order-label {
+      font-size: 0.6rem;
+      padding: 0.1rem 0.4rem;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .worker-card .summary {
+      font-size: 0.6rem;
+      line-height: 1.4;
+      color: rgba(245, 245, 248, 0.8);
+    }
+
+    .worker-actions {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.4rem;
+    }
+
+    .worker-actions button {
+      font-size: 0.6rem;
+      padding: 0.45rem 0.2rem;
+      text-transform: uppercase;
+    }
+
+    .worker-actions button.active {
+      background: rgba(103, 243, 162, 0.18);
+      border-color: #67f3a2;
+      color: #67f3a2;
+    }
+
+    .fsm-log {
+      margin-top: 1.25rem;
+      display: flex;
+      flex-direction: column;
       gap: 0.5rem;
     }
 
-    .panel .worker-group button {
-      text-align: left;
-      display: flex;
-      justify-content: space-between;
+    .fsm-log h3 {
+      font-size: 0.7rem;
+      letter-spacing: 0.08em;
+      margin: 0;
+    }
+
+    #fsmLog {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      max-height: 160px;
+      overflow-y: auto;
+      border: 2px solid var(--panel-border);
+      background: rgba(12, 14, 24, 0.6);
+      border-radius: 8px;
+    }
+
+    #fsmLog li {
+      font-size: 0.55rem;
+      padding: 0.45rem 0.6rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    #fsmLog li:last-child {
+      border-bottom: none;
     }
 
     #textBubble {
@@ -211,16 +294,41 @@
     </div>
   </div>
   <div class="main-wrapper">
-    <canvas id="gameCanvas" width="1140" height="600" aria-label="mcsBuilder stage 02 playfield"></canvas>
+    <canvas id="gameCanvas" width="1140" height="600" aria-label="mcsBuilder stage 04 playfield"></canvas>
     <aside class="panel" aria-label="control panel">
       <h2>Control Panel</h2>
       <button id="pauseBtn" type="button">Pause</button>
       <button id="speedBtn" type="button">Speed: 1×</button>
       <button id="contrastBtn" type="button">Contrast</button>
       <section class="worker-group" aria-label="worker commands">
-        <h3>Workers</h3>
-        <button class="worker-btn" data-worker="builder" type="button">Builder<span>idle</span></button>
-        <button class="worker-btn" data-worker="delivery" type="button">Delivery<span>idle</span></button>
+        <div class="worker-card" data-worker="builder">
+          <div class="worker-header">
+            <h3>Builder</h3>
+            <span class="order-label">Idle</span>
+          </div>
+          <p class="summary">Stamina: <span class="stamina">5.0</span> / 5 · State: <span class="state">idle</span></p>
+          <div class="worker-actions">
+            <button type="button" data-action="build">Build</button>
+            <button type="button" data-action="rest">Rest</button>
+            <button type="button" data-action="cancel">Cancel</button>
+          </div>
+        </div>
+        <div class="worker-card" data-worker="delivery">
+          <div class="worker-header">
+            <h3>Delivery</h3>
+            <span class="order-label">Idle</span>
+          </div>
+          <p class="summary">Stamina: <span class="stamina">5.0</span> / 5 · State: <span class="state">idle</span></p>
+          <div class="worker-actions">
+            <button type="button" data-action="fetch">Fetch</button>
+            <button type="button" data-action="rest">Rest</button>
+            <button type="button" data-action="cancel">Cancel</button>
+          </div>
+        </div>
+      </section>
+      <section class="fsm-log" aria-label="worker state log">
+        <h3>Worker State Log</h3>
+        <ul id="fsmLog" aria-live="polite"></ul>
       </section>
       <p class="status" id="panelStatus">Awaiting input…</p>
     </aside>
@@ -251,6 +359,47 @@
     const BUILD_PROGRESS_SLOWDOWN = 1.5;
     const PLAYER_INTERACT_COOLDOWN = 0.35;
     const EDGE_MARGIN = 1;
+    let fsmLogEl = null;
+
+    const WorkerFSMConfig = {
+      builder: {
+        idle: { build: 'headingToSite', rest: 'headingToDorm', cancel: 'idle' },
+        headingToSite: { arriveWork: 'building', rest: 'headingToDorm', cancel: 'idle' },
+        building: { complete: 'idle', rest: 'headingToDorm', cancel: 'idle' },
+        headingToDorm: { arriveRest: 'resting' },
+        resting: { recovered: 'idle' }
+      },
+      delivery: {
+        idle: { fetch: 'headingToWood', rest: 'headingToDorm', cancel: 'idle' },
+        headingToWood: { arriveSource: 'loading', rest: 'headingToDorm', cancel: 'idle' },
+        loading: { loadComplete: 'headingToSite', rest: 'headingToDorm', cancel: 'idle' },
+        headingToSite: { arriveSite: 'delivering', rest: 'headingToDorm', cancel: 'idle' },
+        delivering: { dropComplete: 'headingToWood', rest: 'headingToDorm', cancel: 'idle' },
+        headingToDorm: { arriveRest: 'resting' },
+        resting: { recovered: 'idle' }
+      }
+    };
+
+    function createStateMachine(role) {
+      return {
+        role,
+        state: 'idle',
+        transition(event, worker) {
+          const map = WorkerFSMConfig[role][this.state];
+          if (!map) {
+            return false;
+          }
+          const next = map[event];
+          if (!next) {
+            return false;
+          }
+          const previous = this.state;
+          this.state = next;
+          logStateTransition(worker, event, previous, next);
+          return true;
+        }
+      };
+    }
 
     canvas.width = grid.cols * grid.cell;
     canvas.height = grid.rows * grid.cell;
@@ -312,7 +461,8 @@
     const progressFill = document.getElementById('progressFill');
     const progressText = document.getElementById('progressText');
     const bubble = document.getElementById('textBubble');
-    const workerButtons = Array.from(document.querySelectorAll('.worker-btn'));
+    const workerCards = Array.from(document.querySelectorAll('.worker-card'));
+    fsmLogEl = document.getElementById('fsmLog');
     bubble.style.display = 'none';
 
     function rectsOverlap(a, b) {
@@ -542,6 +692,21 @@
       const secs = Math.floor(seconds % 60).toString().padStart(2, '0');
       return `${mins}:${secs}`;
     }
+
+    function logStateTransition(worker, event, fromState, toState) {
+      if (!fsmLogEl) {
+        return;
+      }
+      const label = worker ? worker.name : 'Worker';
+      const timestamp = formatTime(state.time.elapsed || 0);
+      const entry = document.createElement('li');
+      entry.textContent = `[${timestamp}] ${label}: ${fromState} —${event}→ ${toState}`;
+      fsmLogEl.prepend(entry);
+      while (fsmLogEl.children.length > 8) {
+        fsmLogEl.removeChild(fsmLogEl.lastChild);
+      }
+    }
+
 
     function updateHUD() {
       hudFloor.textContent = `${state.floor.n}`;
@@ -1075,6 +1240,7 @@
         id,
         role,
         name,
+        stateMachine: createStateMachine(role),
         x: cell.col * grid.cell + (grid.cell - width) / 2,
         y: cell.row * grid.cell + (grid.cell - height) / 2,
         width,
@@ -1235,6 +1401,7 @@
         const arrived = moveWorkerToward(worker, approach, WORKER_ACTIVE_SPEED, dt);
         if (arrived) {
           alignWorkerToCenter(worker, approach);
+          worker.stateMachine.transition('arriveWork', worker);
           setWorkerDestination(worker, null);
           worker.activity = 'building';
           if (!worker.buildReserved) {
@@ -1265,6 +1432,7 @@
         if (state.floor.progress >= 1) {
           worker.buildReserved = false;
           completeFloor();
+          worker.stateMachine.transition('complete', worker);
           if (worker.stamina < STAMINA_BUILD_COST) {
             setWorkerOrder(worker, 'rest', `${worker.name} completes the floor and heads to the dorm.`);
           } else {
@@ -1290,6 +1458,7 @@
         const arrived = moveWorkerToward(worker, woodApproach, WORKER_ACTIVE_SPEED, dt);
         if (arrived) {
           alignWorkerToCenter(worker, woodApproach);
+          worker.stateMachine.transition('arriveSource', worker);
           worker.activity = 'loading';
           worker.taskTimer = 0;
           setWorkerDestination(worker, null);
@@ -1307,6 +1476,7 @@
             return;
           }
           worker.inv = Math.min(1, remaining);
+          worker.stateMachine.transition('loadComplete', worker);
           worker.activity = 'toMcs';
           setWorkerDestination(worker, mcsApproach);
         }
@@ -1317,6 +1487,7 @@
         const arrived = moveWorkerToward(worker, mcsApproach, WORKER_CARRY_SPEED, dt);
         if (arrived) {
           alignWorkerToCenter(worker, mcsApproach);
+          worker.stateMachine.transition('arriveSite', worker);
           worker.activity = 'delivering';
           worker.taskTimer = 0;
         }
@@ -1342,6 +1513,7 @@
           const delivered = Math.min(worker.inv, room);
           state.stock.wood = Math.min(state.floor.need, state.stock.wood + delivered);
           worker.inv -= delivered;
+          worker.stateMachine.transition('dropComplete', worker);
           worker.stamina = Math.max(0, worker.stamina - STAMINA_TRIP_COST);
           statusEl.textContent = `${worker.name} delivered ${delivered} wood.`;
           if (worker.stamina <= 0) {
@@ -1371,6 +1543,7 @@
         const arrived = moveWorkerToward(worker, dormApproach, WORKER_ACTIVE_SPEED, dt);
         if (arrived) {
           alignWorkerToCenter(worker, dormApproach);
+          worker.stateMachine.transition('arriveRest', worker);
           setWorkerDestination(worker, null);
           worker.activity = 'resting';
           worker.visible = false;
@@ -1386,6 +1559,7 @@
           if (worker.restAnchor) {
             alignWorkerToCenter(worker, worker.restAnchor);
           }
+          worker.stateMachine.transition('recovered', worker);
           setWorkerOrder(worker, 'idle', `${worker.name} feels refreshed and leaves the dorm.`);
         }
       }
@@ -1679,7 +1853,8 @@
         ctx.fillText(worker.name, worker.x + worker.width / 2, bodyY - 12);
         ctx.fillStyle = isIdle ? '#9aa0b7' : '#fce38a';
         const staminaText = `${worker.stamina.toFixed(1)}/${MAX_STAMINA}`;
-        ctx.fillText(`${worker.order} · ${staminaText}`, worker.x + worker.width / 2, bodyY - 26);
+        const stateLabel = formatStateLabel(worker.stateMachine.state);
+        ctx.fillText(`${stateLabel} · ${staminaText}`, worker.x + worker.width / 2, bodyY - 26);
       });
       ctx.textAlign = 'left';
     }
@@ -1838,7 +2013,7 @@
       const message = 'Workers refreshed by coffee!';
       statusEl.textContent = message;
       showBubble(message);
-      refreshWorkerButtons();
+      refreshWorkerCards();
     }
 
     function togglePause() {
@@ -1862,34 +2037,99 @@
         : 'High contrast disabled.';
     }
 
-    function handleWorkerClick(workerName) {
-      const worker = workers.find(w => w.name === workerName);
+    function handleWorkerAction(workerKey, action) {
+      const worker = workers.find(w => w.role === workerKey);
       if (!worker) {
         return;
       }
-      if (worker.order === 'rest') {
+      if (worker.order === 'rest' && action !== 'cancel') {
         showBubble(`${worker.name} is resting at the dorm.`);
         return;
       }
-      const cycle = worker.role === 'builder' ? ['idle', 'build'] : ['idle', 'deliver'];
-      const currentIndex = cycle.indexOf(worker.order);
-      const nextOrder = cycle[(currentIndex + 1) % cycle.length];
-      setWorkerOrder(worker, nextOrder);
+      if (action === 'cancel') {
+        setWorkerOrder(worker, 'idle');
+        return;
+      }
+      if (action === 'rest') {
+        setWorkerOrder(worker, 'rest');
+        return;
+      }
+      if (workerKey === 'builder' && action === 'build') {
+        setWorkerOrder(worker, 'build');
+        return;
+      }
+      if (workerKey === 'delivery' && action === 'fetch') {
+        setWorkerOrder(worker, 'deliver');
+        return;
+      }
     }
 
-    function refreshWorkerButtons() {
-      workerButtons.forEach(btn => {
-        const workerName = btn.dataset.worker === 'builder' ? 'Builder' : 'Delivery';
-        const worker = workers.find(w => w.name === workerName);
-        if (worker) {
-          const label = btn.querySelector('span');
-          if (label) {
-            label.textContent = `${worker.order} (${worker.stamina.toFixed(1)})`;
-          }
+    function refreshWorkerCards() {
+      workerCards.forEach(card => {
+        const workerKey = card.dataset.worker;
+        const worker = workers.find(w => w.role === workerKey);
+        if (!worker) {
+          return;
         }
+        const orderLabel = card.querySelector('.order-label');
+        if (orderLabel) {
+          orderLabel.textContent = formatOrderLabel(worker.order, workerKey);
+        }
+        const staminaEl = card.querySelector('.summary .stamina');
+        if (staminaEl) {
+          staminaEl.textContent = worker.stamina.toFixed(1);
+        }
+        const stateEl = card.querySelector('.summary .state');
+        if (stateEl) {
+          stateEl.textContent = worker.stateMachine.state;
+        }
+        const buttons = card.querySelectorAll('button[data-action]');
+        buttons.forEach(btn => {
+          btn.classList.toggle('active', isActionActive(worker, btn.dataset.action));
+        });
       });
     }
 
+
+
+    function formatOrderLabel(order, workerKey) {
+      if (order === 'build') {
+        return 'Build';
+      }
+      if (order === 'deliver') {
+        return workerKey === 'delivery' ? 'Fetch' : 'Deliver';
+      }
+      if (order === 'rest') {
+        return 'Rest';
+      }
+      return 'Idle';
+    }
+
+
+
+    function formatStateLabel(state) {
+      if (!state) {
+        return 'Idle';
+      }
+      return state
+        .replace(/([a-z])([A-Z])/g, '$1 $2')
+        .replace(/^./, char => char.toUpperCase());
+    }
+    function isActionActive(worker, action) {
+      if (action === 'build') {
+        return worker.order === 'build';
+      }
+      if (action === 'fetch') {
+        return worker.order === 'deliver';
+      }
+      if (action === 'rest') {
+        return worker.order === 'rest';
+      }
+      if (action === 'cancel') {
+        return worker.order === 'idle';
+      }
+      return false;
+    }
     function setWorkerOrder(worker, newOrder, messageOverride) {
       if (worker.order === newOrder && !messageOverride) {
         return;
@@ -1900,7 +2140,7 @@
           const msg = 'Need more wood before building.';
           statusEl.textContent = msg;
           showBubble(msg);
-          refreshWorkerButtons();
+          refreshWorkerCards();
           return;
         }
         if (worker.stamina < STAMINA_BUILD_COST) {
@@ -1916,12 +2156,26 @@
         }
       } else if (newOrder === 'rest') {
         if (worker.activity === 'resting') {
-          refreshWorkerButtons();
+          refreshWorkerCards();
           return;
         }
       }
 
+      const previousOrder = worker.order;
       worker.order = newOrder;
+
+      if (previousOrder !== newOrder) {
+        if (newOrder === 'build') {
+          worker.stateMachine.transition('build', worker);
+        } else if (newOrder === 'deliver') {
+          worker.stateMachine.transition('fetch', worker);
+        } else if (newOrder === 'rest') {
+          worker.stateMachine.transition('rest', worker);
+        } else if (newOrder === 'idle' && previousOrder !== 'rest') {
+          worker.stateMachine.transition('cancel', worker);
+        }
+      }
+
       if (newOrder === 'idle') {
         worker.orderStarted = false;
         setWorkerDestination(worker, null);
@@ -1962,7 +2216,7 @@
         } else if (newOrder === 'build') {
           message = `${worker.name} starts building floor ${state.floor.n}.`;
         } else if (newOrder === 'deliver') {
-          message = `${worker.name} begins delivering wood.`;
+          message = `${worker.name} begins fetching wood.`;
         } else if (newOrder === 'rest') {
           message = `${worker.name} walks to the dorm for a break.`;
         }
@@ -1972,8 +2226,9 @@
         statusEl.textContent = message;
         showBubble(message);
       }
-      refreshWorkerButtons();
+      refreshWorkerCards();
     }
+
 
     function positionBubble() {
       if (bubble.style.display === 'none') {
@@ -2006,15 +2261,18 @@
     document.getElementById('speedBtn').addEventListener('click', cycleSpeed);
     document.getElementById('contrastBtn').addEventListener('click', toggleContrast);
 
-    workerButtons.forEach(btn => {
-      btn.addEventListener('click', () => {
-        const workerName = btn.dataset.worker === 'builder' ? 'Builder' : 'Delivery';
-        handleWorkerClick(workerName);
+    workerCards.forEach(card => {
+      const workerKey = card.dataset.worker;
+      const buttons = card.querySelectorAll('button[data-action]');
+      buttons.forEach(btn => {
+        btn.addEventListener('click', () => {
+          handleWorkerAction(workerKey, btn.dataset.action);
+        });
       });
     });
 
     updateHUD();
-    refreshWorkerButtons();
+    refreshWorkerCards();
     drawScene();
     setInterval(() => {
       update(1 / FPS);
