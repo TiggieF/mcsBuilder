@@ -1,0 +1,1248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>mcsBuilder — Stage 00 Scaffold</title>
+  <style>
+    :root {
+      --bg: #0f1321;
+      --panel-bg: #1d1e2b;
+      --panel-border: #3a3d55;
+      --text: #f5f5f8;
+      --accent: #6bd3ff;
+      --hud-bg: rgba(12, 14, 24, 0.92);
+      --bubble-bg: rgba(20, 20, 30, 0.95);
+      font-size: 16px;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Press Start 2P", "VT323", "Courier New", monospace;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    body.high-contrast {
+      --bg: #050505;
+      --panel-bg: #000000;
+      --panel-border: #ffffff;
+      --text: #ffffff;
+      --hud-bg: rgba(0, 0, 0, 0.92);
+      --bubble-bg: rgba(0, 0, 0, 0.95);
+    }
+
+    h1, h2, h3 {
+      font-size: 1rem;
+      letter-spacing: 0.05em;
+      margin: 0 0 0.75rem;
+    }
+
+    .hud {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 1rem;
+      padding: 0.75rem 1.25rem;
+      background: var(--hud-bg);
+      border-bottom: 2px solid var(--panel-border);
+      text-transform: uppercase;
+      font-size: 0.7rem;
+      letter-spacing: 0.08em;
+      box-sizing: border-box;
+    }
+
+    .hud-item {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+
+    .hud-item .label {
+      opacity: 0.75;
+    }
+
+    .hud-item .value {
+      color: var(--accent);
+      font-size: 0.75rem;
+    }
+
+    .hud-item.bar-item {
+      gap: 0.4rem;
+    }
+
+    .bar {
+      position: relative;
+      height: 22px;
+      border: 2px solid var(--panel-border);
+      background: rgba(10, 14, 24, 0.7);
+      overflow: hidden;
+      box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.08);
+    }
+
+    .bar .fill {
+      position: absolute;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      width: 0%;
+      background: linear-gradient(90deg, #67f3a2, #2db4ff);
+      transition: width 0.25s ease-out;
+    }
+
+    .bar .bar-text {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 0.65rem;
+      color: var(--text);
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+      pointer-events: none;
+    }
+
+    .main-wrapper {
+      display: flex;
+      flex: 1;
+      gap: 1.5rem;
+      padding: 1.5rem;
+      box-sizing: border-box;
+    }
+
+    canvas {
+      border: 3px solid var(--panel-border);
+      image-rendering: pixelated;
+      background: #10181f;
+      flex-shrink: 0;
+    }
+
+    .panel {
+      width: 260px;
+      background: var(--panel-bg);
+      border: 3px solid var(--panel-border);
+      padding: 1.25rem;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      height: fit-content;
+    }
+
+    .panel button {
+      width: 100%;
+      padding: 0.75rem;
+      background: transparent;
+      color: var(--text);
+      border: 2px solid var(--panel-border);
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.75rem;
+      letter-spacing: 0.08em;
+      transition: background 0.2s ease;
+    }
+
+    .panel button:hover,
+    .panel button:focus {
+      background: rgba(255, 255, 255, 0.08);
+      outline: none;
+    }
+
+    .panel .worker-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .panel .worker-group button {
+      text-align: left;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    #textBubble {
+      position: absolute;
+      transform: translate(-50%, -110%);
+      background: var(--bubble-bg);
+      border: 2px solid var(--panel-border);
+      padding: 0.6rem 0.9rem;
+      border-radius: 6px;
+      font-size: 0.7rem;
+      letter-spacing: 0.05em;
+      max-width: 280px;
+      text-align: center;
+      display: none;
+      pointer-events: none;
+      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.4);
+      z-index: 20;
+    }
+
+    .panel .status {
+      font-size: 0.65rem;
+      line-height: 1.4;
+      opacity: 0.8;
+    }
+  </style>
+</head>
+<body>
+  <div class="hud">
+    <div class="hud-item bar-item">
+      <span class="label">Wood Stock</span>
+      <div class="bar" id="woodBar">
+        <div class="fill" id="woodFill"></div>
+        <span class="bar-text" id="woodText">1/5</span>
+      </div>
+    </div>
+    <div class="hud-item bar-item">
+      <span class="label">Progress</span>
+      <div class="bar" id="progressBar">
+        <div class="fill" id="progressFill"></div>
+        <span class="bar-text" id="progressText">12%</span>
+      </div>
+    </div>
+    <div class="hud-item">
+      <span class="label">Current Floor</span>
+      <span class="value" id="hud-floor">1</span>
+    </div>
+    <div class="hud-item">
+      <span class="label">Total Time</span>
+      <span class="value" id="hud-time">00:00</span>
+    </div>
+  </div>
+  <div class="main-wrapper">
+    <canvas id="gameCanvas" width="1140" height="600" aria-label="mcsBuilder stage 00 playfield"></canvas>
+    <aside class="panel" aria-label="control panel">
+      <h2>Control Panel</h2>
+      <button id="pauseBtn" type="button">Pause</button>
+      <button id="speedBtn" type="button">Speed: 1×</button>
+      <button id="contrastBtn" type="button">Contrast</button>
+      <section class="worker-group" aria-label="worker commands">
+        <h3>Workers</h3>
+        <button class="worker-btn" data-worker="builder" type="button">Builder<span>idle</span></button>
+        <button class="worker-btn" data-worker="delivery" type="button">Delivery<span>idle</span></button>
+      </section>
+      <p class="status" id="panelStatus">Awaiting input…</p>
+    </aside>
+  </div>
+  <div id="textBubble" role="status" aria-live="polite"></div>
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+
+    const grid = { cols: 38, rows: 20, cell: 30 };
+    const frameDuration = 1000 / 30;
+
+    canvas.width = grid.cols * grid.cell;
+    canvas.height = grid.rows * grid.cell;
+
+    const textures = {
+      grass: createGrassPattern('#1f3a1c', '#2f5327', '#3f6d31'),
+      mcs: createStripedPattern('#303a65', '#47578c', '#1d233c'),
+      building: createBrickPattern('#744d2b', '#4b321b', '#301f10'),
+      cafe: createBrickPattern('#223937', '#1b2c2a', '#12201e'),
+      dorm: createStripedPattern('#3e2b58', '#5b3f7a', '#211334'),
+      rock: createRockPattern('#505667', '#292c36', '#8f95a6')
+    };
+
+    const zones = generateZones();
+    const zoneEdgeMap = zones.map(getZoneEdgeCells);
+    const baseBlocked = createBlockedSetFromZones(zones);
+
+    let playerCell = findPlayerStartCell(baseBlocked);
+    const rocks = generateRocks(zones, playerCell, zoneEdgeMap);
+    const blockedCells = createBlockedSet(zones, rocks);
+
+    if (blockedCells.has(cellKey(playerCell))) {
+      playerCell = findNearestWalkableCell(playerCell, blockedCells);
+    }
+
+    const rockTiles = buildRockTiles(rocks);
+    const solidRects = [...zones, ...rockTiles];
+
+    const player = createPlayer(playerCell);
+
+    const workers = createWorkers(playerCell, blockedCells);
+
+    const keys = {};
+    let isPaused = false;
+    const speedOptions = [0.5, 1, 2, 3, 4];
+    let speedIndex = speedOptions.indexOf(1);
+    let speedMultiplier = speedOptions[speedIndex];
+    let progress = 0.12;
+    let totalTime = 0;
+    const woodStock = { current: 1, capacity: 5 };
+    let bubbleTimeout = null;
+
+    const statusEl = document.getElementById('panelStatus');
+    const hudFloor = document.getElementById('hud-floor');
+    const hudTime = document.getElementById('hud-time');
+    const woodFill = document.getElementById('woodFill');
+    const woodText = document.getElementById('woodText');
+    const progressFill = document.getElementById('progressFill');
+    const progressText = document.getElementById('progressText');
+    const bubble = document.getElementById('textBubble');
+    const workerButtons = Array.from(document.querySelectorAll('.worker-btn'));
+    bubble.style.display = 'none';
+
+    function rectsOverlap(a, b) {
+      return a.x < b.x + b.width &&
+             a.x + a.width > b.x &&
+             a.y < b.y + b.height &&
+             a.y + a.height > b.y;
+    }
+
+    function expandedRect(rect, padding) {
+      return {
+        x: rect.x - padding,
+        y: rect.y - padding,
+        width: rect.width + padding * 2,
+        height: rect.height + padding * 2
+      };
+    }
+
+    function cellKey(cell) {
+      return `${cell.col},${cell.row}`;
+    }
+
+    function getPlayerRect() {
+      return {
+        x: player.x,
+        y: player.y,
+        width: player.width,
+        height: player.height
+      };
+    }
+
+    function getWorkerRects(options = {}) {
+      const { exclude } = options;
+      return workers
+        .filter(worker => worker !== exclude)
+        .map(worker => ({
+          x: worker.x,
+          y: worker.y,
+          width: worker.width,
+          height: worker.height
+        }));
+    }
+
+    function getCollisionRects(options = {}) {
+      const { includeWorkers = true, excludeWorker = null, includePlayer = false } = options;
+      const rects = [...solidRects];
+      if (includeWorkers) {
+        rects.push(...getWorkerRects({ exclude: excludeWorker }));
+      }
+      if (includePlayer) {
+        rects.push(getPlayerRect());
+      }
+      return rects;
+    }
+
+    function formatTime(seconds) {
+      const mins = Math.floor(seconds / 60).toString().padStart(2, '0');
+      const secs = Math.floor(seconds % 60).toString().padStart(2, '0');
+      return `${mins}:${secs}`;
+    }
+
+    function updateHUD() {
+      hudFloor.textContent = '1';
+      woodText.textContent = `${woodStock.current}/${woodStock.capacity}`;
+      const woodPercent = Math.max(0, Math.min(1, woodStock.current / woodStock.capacity)) * 100;
+      woodFill.style.width = `${woodPercent}%`;
+      const progressPercent = Math.max(0, Math.min(1, progress)) * 100;
+      progressText.textContent = `${Math.round(progressPercent)}%`;
+      progressFill.style.width = `${progressPercent}%`;
+      hudTime.textContent = formatTime(totalTime);
+    }
+
+    function createGrassPattern(primary, secondary, accent) {
+      const tile = document.createElement('canvas');
+      tile.width = 16;
+      tile.height = 16;
+      const tctx = tile.getContext('2d');
+      tctx.imageSmoothingEnabled = false;
+      tctx.fillStyle = primary;
+      tctx.fillRect(0, 0, tile.width, tile.height);
+      tctx.fillStyle = secondary;
+      for (let y = 0; y < tile.height; y += 4) {
+        for (let x = (y / 4) % 2 === 0 ? 0 : 2; x < tile.width; x += 4) {
+          tctx.fillRect(x, y, 2, 2);
+        }
+      }
+      tctx.fillStyle = accent;
+      const accentPixels = [
+        [1, 1], [5, 3], [9, 1], [13, 5],
+        [3, 9], [11, 11], [7, 13], [15, 15]
+      ];
+      accentPixels.forEach(([x, y]) => {
+        tctx.fillRect(x % tile.width, y % tile.height, 2, 2);
+      });
+      return ctx.createPattern(tile, 'repeat');
+    }
+
+    function createStripedPattern(primary, secondary, shadow) {
+      const tile = document.createElement('canvas');
+      tile.width = 16;
+      tile.height = 16;
+      const tctx = tile.getContext('2d');
+      tctx.imageSmoothingEnabled = false;
+      tctx.fillStyle = shadow;
+      tctx.fillRect(0, 0, tile.width, tile.height);
+      tctx.fillStyle = primary;
+      for (let x = 0; x < tile.width; x += 4) {
+        tctx.fillRect(x, 0, 3, tile.height);
+      }
+      tctx.fillStyle = secondary;
+      for (let y = 0; y < tile.height; y += 8) {
+        tctx.fillRect(0, y, tile.width, 2);
+      }
+      return ctx.createPattern(tile, 'repeat');
+    }
+
+    function createBrickPattern(base, mortar, shadow) {
+      const tile = document.createElement('canvas');
+      tile.width = 16;
+      tile.height = 16;
+      const tctx = tile.getContext('2d');
+      tctx.imageSmoothingEnabled = false;
+      tctx.fillStyle = shadow;
+      tctx.fillRect(0, 0, tile.width, tile.height);
+      tctx.fillStyle = mortar;
+      tctx.fillRect(1, 1, tile.width - 2, tile.height - 2);
+      tctx.fillStyle = base;
+      for (let row = 0; row < tile.height; row += 6) {
+        const offset = (row / 6) % 2 === 0 ? 0 : 4;
+        for (let col = offset; col < tile.width; col += 8) {
+          tctx.fillRect(col, row, 6, 4);
+        }
+      }
+      tctx.fillStyle = shadow;
+      for (let y = 0; y < tile.height; y += 4) {
+        tctx.fillRect(0, y, tile.width, 1);
+      }
+      return ctx.createPattern(tile, 'repeat');
+    }
+
+    function createRockPattern(primary, shadow, highlight) {
+      const tile = document.createElement('canvas');
+      tile.width = 16;
+      tile.height = 16;
+      const tctx = tile.getContext('2d');
+      tctx.imageSmoothingEnabled = false;
+      tctx.fillStyle = shadow;
+      tctx.fillRect(0, 0, tile.width, tile.height);
+      tctx.fillStyle = primary;
+      const blocks = [
+        [2, 2, 4, 4], [8, 1, 5, 5], [1, 9, 6, 5]
+      ];
+      blocks.forEach(([x, y, w, h]) => {
+        tctx.fillRect(x, y, w, h);
+      });
+      tctx.fillStyle = highlight;
+      [[3, 3], [9, 3], [5, 11]].forEach(([x, y]) => {
+        tctx.fillRect(x, y, 2, 2);
+      });
+      return ctx.createPattern(tile, 'repeat');
+    }
+
+    function generateZones() {
+      const placed = [];
+      const zones = [];
+
+      const configs = [
+        {
+          name: 'MCS Construction',
+          description: 'Future site of the Computer Science building.',
+          tilesWide: 5,
+          tilesHigh: 5,
+          color: textures.mcs,
+          padding: grid.cell
+        },
+        {
+          name: 'Wood House',
+          description: 'Stockpile for framing lumber.',
+          tilesWide: 2,
+          tilesHigh: 2,
+          color: textures.building,
+          padding: grid.cell * 0.75
+        },
+        {
+          name: 'Starbucks',
+          description: 'Quick caffeine stop for the crew.',
+          tilesWide: 2,
+          tilesHigh: 2,
+          color: textures.cafe,
+          padding: grid.cell * 0.75
+        },
+        {
+          name: 'Dorm Beds',
+          description: 'Where exhausted workers rest up.',
+          tilesWide: 2,
+          tilesHigh: 2,
+          color: textures.dorm,
+          padding: grid.cell * 0.75
+        }
+      ];
+
+      configs.forEach(config => {
+        const zone = placeRandomZone(config, placed, config.padding);
+        zones.push(zone);
+        placed.push(zone);
+      });
+
+      return zones;
+    }
+
+    function placeRandomZone(config, placed, padding) {
+      const width = config.tilesWide * grid.cell;
+      const height = config.tilesHigh * grid.cell;
+      const maxCol = grid.cols - config.tilesWide;
+      const maxRow = grid.rows - config.tilesHigh;
+      let attempts = 0;
+
+      while (attempts < 400) {
+        const col = Math.floor(Math.random() * (maxCol + 1));
+        const row = Math.floor(Math.random() * (maxRow + 1));
+        const zone = {
+          name: config.name,
+          description: config.description,
+          x: col * grid.cell,
+          y: row * grid.cell,
+          width,
+          height,
+          color: config.color,
+          solid: true
+        };
+
+        const overlaps = placed.some(existing => rectsOverlap(zone, expandedRect(existing, padding)));
+        if (!overlaps) {
+          return zone;
+        }
+        attempts += 1;
+      }
+
+      return {
+        name: config.name,
+        description: config.description,
+        x: 0,
+        y: 0,
+        width,
+        height,
+        color: config.color,
+        solid: true
+      };
+    }
+
+    function createBlockedSetFromZones(zones) {
+      const set = new Set();
+      zones.forEach(zone => markZoneCells(set, zone));
+      return set;
+    }
+
+    function createBlockedSet(zones, rocks) {
+      const set = createBlockedSetFromZones(zones);
+      rocks.forEach(rock => {
+        rock.cells.forEach(cell => set.add(cellKey(cell)));
+      });
+      return set;
+    }
+
+    function markZoneCells(set, zone) {
+      const startCol = Math.floor(zone.x / grid.cell);
+      const startRow = Math.floor(zone.y / grid.cell);
+      const cols = Math.floor(zone.width / grid.cell);
+      const rows = Math.floor(zone.height / grid.cell);
+      for (let c = 0; c < cols; c++) {
+        for (let r = 0; r < rows; r++) {
+          set.add(cellKey({ col: startCol + c, row: startRow + r }));
+        }
+      }
+    }
+
+    function findPlayerStartCell(blockedSet) {
+      const preferred = { col: Math.floor(grid.cols / 2), row: grid.rows - 2 };
+      if (!blockedSet.has(cellKey(preferred))) {
+        return preferred;
+      }
+      return findNearestWalkableCell(preferred, blockedSet);
+    }
+
+    function findNearestWalkableCell(start, blockedSet) {
+      const queue = [start];
+      const visited = new Set([cellKey(start)]);
+
+      while (queue.length > 0) {
+        const cell = queue.shift();
+        const key = cellKey(cell);
+        if (withinGrid(cell.col, cell.row) && !blockedSet.has(key)) {
+          return cell;
+        }
+
+        const neighbors = [
+          { col: cell.col + 1, row: cell.row },
+          { col: cell.col - 1, row: cell.row },
+          { col: cell.col, row: cell.row + 1 },
+          { col: cell.col, row: cell.row - 1 }
+        ];
+
+        neighbors.forEach(neighbor => {
+          const nKey = cellKey(neighbor);
+          if (!visited.has(nKey) && withinGrid(neighbor.col, neighbor.row)) {
+            visited.add(nKey);
+            queue.push(neighbor);
+          }
+        });
+      }
+
+      return { col: 1, row: 1 };
+    }
+
+    function withinGrid(col, row) {
+      return col >= 0 && row >= 0 && col < grid.cols && row < grid.rows;
+    }
+
+    function generateRocks(zones, startCell, zoneEdgeMap) {
+      const occupancy = createBlockedSetFromZones(zones);
+      const rocks = [];
+      const rockCount = getRandomInt(9, 15);
+      const shapeTypes = ['rectangle', 'square', 'circle'];
+
+      for (let i = 0; i < rockCount; i++) {
+        let placed = false;
+        let attempts = 0;
+
+        while (!placed && attempts < 350) {
+          attempts += 1;
+          const type = shapeTypes[Math.floor(Math.random() * shapeTypes.length)];
+          let cells = [];
+
+          if (type === 'rectangle') {
+            const width = getRandomInt(3, 6);
+            const height = getRandomInt(2, 4);
+            const maxCol = grid.cols - width;
+            const maxRow = grid.rows - height;
+            if (maxCol < 0 || maxRow < 0) continue;
+            const originCol = getRandomInt(0, maxCol);
+            const originRow = getRandomInt(0, maxRow);
+            for (let dx = 0; dx < width; dx++) {
+              for (let dy = 0; dy < height; dy++) {
+                cells.push({ col: originCol + dx, row: originRow + dy });
+              }
+            }
+          } else if (type === 'square') {
+            const size = getRandomInt(2, 4);
+            const maxCol = grid.cols - size;
+            const maxRow = grid.rows - size;
+            if (maxCol < 0 || maxRow < 0) continue;
+            const originCol = getRandomInt(0, maxCol);
+            const originRow = getRandomInt(0, maxRow);
+            for (let dx = 0; dx < size; dx++) {
+              for (let dy = 0; dy < size; dy++) {
+                cells.push({ col: originCol + dx, row: originRow + dy });
+              }
+            }
+          } else {
+            const radius = getRandomInt(1, 2);
+            const diameter = radius * 2 + 1;
+            const maxCol = grid.cols - diameter;
+            const maxRow = grid.rows - diameter;
+            if (maxCol < 0 || maxRow < 0) continue;
+            const originCol = getRandomInt(0, maxCol);
+            const originRow = getRandomInt(0, maxRow);
+            const centerCol = originCol + radius;
+            const centerRow = originRow + radius;
+            for (let col = originCol; col < originCol + diameter; col++) {
+              for (let row = originRow; row < originRow + diameter; row++) {
+                const dx = col - centerCol;
+                const dy = row - centerRow;
+                if (dx * dx + dy * dy <= radius * radius + 0.4) {
+                  cells.push({ col, row });
+                }
+              }
+            }
+          }
+
+          if (!cells.length) continue;
+          if (cells.some(cell => !withinGrid(cell.col, cell.row))) continue;
+          if (cells.some(cell => occupancy.has(cellKey(cell)))) continue;
+          if (cells.some(cell => cell.col === startCell.col && cell.row === startCell.row)) continue;
+
+          cells.forEach(cell => occupancy.add(cellKey(cell)));
+
+          if (ensureConnectivity(occupancy, startCell, zoneEdgeMap)) {
+            rocks.push({ cells });
+            placed = true;
+          } else {
+            cells.forEach(cell => occupancy.delete(cellKey(cell)));
+          }
+        }
+      }
+
+      return rocks;
+    }
+
+    function ensureConnectivity(occupancy, startCell, zoneEdgeMap) {
+      if (!withinGrid(startCell.col, startCell.row) || occupancy.has(cellKey(startCell))) {
+        return false;
+      }
+      const reachable = floodFill(occupancy, startCell);
+      return zoneEdgeMap.every(edges => edges.some(cell => {
+        const key = cellKey(cell);
+        return !occupancy.has(key) && reachable.has(key);
+      }));
+    }
+
+    function floodFill(occupancy, startCell) {
+      const visited = new Set();
+      const queue = [];
+      const startKey = cellKey(startCell);
+      queue.push(startCell);
+      visited.add(startKey);
+
+      while (queue.length) {
+        const cell = queue.shift();
+        const neighbors = [
+          { col: cell.col + 1, row: cell.row },
+          { col: cell.col - 1, row: cell.row },
+          { col: cell.col, row: cell.row + 1 },
+          { col: cell.col, row: cell.row - 1 }
+        ];
+
+        neighbors.forEach(neighbor => {
+          const key = cellKey(neighbor);
+          if (!visited.has(key) && withinGrid(neighbor.col, neighbor.row) && !occupancy.has(key)) {
+            visited.add(key);
+            queue.push(neighbor);
+          }
+        });
+      }
+
+      return visited;
+    }
+
+    function getZoneEdgeCells(zone) {
+      const cells = [];
+      const startCol = Math.floor(zone.x / grid.cell);
+      const startRow = Math.floor(zone.y / grid.cell);
+      const cols = Math.floor(zone.width / grid.cell);
+      const rows = Math.floor(zone.height / grid.cell);
+
+      for (let col = startCol; col < startCol + cols; col++) {
+        cells.push({ col, row: startRow - 1 });
+        cells.push({ col, row: startRow + rows });
+      }
+      for (let row = startRow; row < startRow + rows; row++) {
+        cells.push({ col: startCol - 1, row });
+        cells.push({ col: startCol + cols, row });
+      }
+
+      const unique = new Map();
+      cells.forEach(cell => {
+        if (withinGrid(cell.col, cell.row)) {
+          unique.set(cellKey(cell), cell);
+        }
+      });
+      return Array.from(unique.values());
+    }
+
+    function buildRockTiles(rocks) {
+      const tiles = [];
+      rocks.forEach(rock => {
+        rock.cells.forEach(cell => {
+          tiles.push({
+            x: cell.col * grid.cell,
+            y: cell.row * grid.cell,
+            width: grid.cell,
+            height: grid.cell,
+            solid: true
+          });
+        });
+      });
+      return tiles;
+    }
+
+    function createPlayer(cell) {
+      const width = 26;
+      const height = 26;
+      return {
+        x: cell.col * grid.cell + (grid.cell - width) / 2,
+        y: cell.row * grid.cell + (grid.cell - height) / 2,
+        width,
+        height,
+        speed: 150,
+        color: '#f9f871'
+      };
+    }
+
+    function createWorkers(playerCell, blocked) {
+      const builderCell = findWorkerCell({ col: playerCell.col - 2, row: playerCell.row - 1 }, blocked);
+      const deliveryCell = findWorkerCell({ col: playerCell.col + 2, row: playerCell.row - 1 }, blocked);
+      return [
+        createWorker('Builder', builderCell, '#777d8a', '#f4a261', '#ffe082'),
+        createWorker('Delivery', deliveryCell, '#868d9a', '#58d4ff', '#a8e8ff')
+      ];
+    }
+
+    function findWorkerCell(preferred, blocked) {
+      if (!preferred || !withinGrid(preferred.col, preferred.row) || blocked.has(cellKey(preferred))) {
+        return findNearestWalkableCell(preferred || { col: 2, row: 2 }, blocked);
+      }
+      return preferred;
+    }
+
+    function createWorker(name, cell, idleColor, activeColor, accentColor) {
+      const width = 20;
+      const height = 20;
+      return {
+        name,
+        x: cell.col * grid.cell + (grid.cell - width) / 2,
+        y: cell.row * grid.cell + (grid.cell - height) / 2,
+        width,
+        height,
+        colorIdle: idleColor,
+        colorActive: activeColor,
+        accentColor,
+        state: 'idle',
+        idleSpeed: 28,
+        idleCooldown: Math.random() * 1.5,
+        target: null,
+        jumping: false,
+        jumpTime: 0,
+        jumpDuration: 0.45,
+        jumpHeight: 12,
+        jumpOffset: 0,
+        hasJumped: false
+      };
+    }
+
+    function handleMovement(dt) {
+      let vx = 0;
+      let vy = 0;
+      if (keys['KeyW']) vy -= 1;
+      if (keys['KeyS']) vy += 1;
+      if (keys['KeyA']) vx -= 1;
+      if (keys['KeyD']) vx += 1;
+
+      if (vx !== 0 && vy !== 0) {
+        const inv = Math.SQRT1_2;
+        vx *= inv;
+        vy *= inv;
+      }
+
+      const distance = player.speed * dt * speedMultiplier;
+
+      const collisionRects = getCollisionRects();
+
+      if (vx !== 0) {
+        const nextRect = {
+          x: player.x + vx * distance,
+          y: player.y,
+          width: player.width,
+          height: player.height
+        };
+        if (!collisionRects.some(s => rectsOverlap(nextRect, s))) {
+          player.x = nextRect.x;
+        }
+      }
+
+      if (vy !== 0) {
+        const nextRect = {
+          x: player.x,
+          y: player.y + vy * distance,
+          width: player.width,
+          height: player.height
+        };
+        if (!collisionRects.some(s => rectsOverlap(nextRect, s))) {
+          player.y = nextRect.y;
+        }
+      }
+
+      player.x = clamp(player.x, 2, canvas.width - player.width - 2);
+      player.y = clamp(player.y, 2, canvas.height - player.height - 2);
+    }
+
+    function updateWorkers(dt) {
+      workers.forEach(worker => {
+        if (worker.state === 'idle' && !worker.hasJumped) {
+          triggerIdleJump(worker);
+        }
+
+        if (worker.jumping) {
+          worker.jumpTime += dt;
+          const jumpProgress = Math.min(worker.jumpTime / worker.jumpDuration, 1);
+          worker.jumpOffset = Math.sin(jumpProgress * Math.PI) * worker.jumpHeight;
+          if (jumpProgress >= 1) {
+            worker.jumping = false;
+            worker.jumpOffset = 0;
+          }
+        }
+
+        if (worker.state === 'idle') {
+          if (worker.idleCooldown > 0) {
+            worker.idleCooldown -= dt;
+          } else if (!worker.target) {
+            const target = pickTargetCell(worker, blockedCells);
+            if (target) {
+              worker.target = target;
+            }
+            worker.idleCooldown = Math.random() * 1.5 + 0.5;
+          }
+
+          if (worker.target) {
+            const centerX = worker.x + worker.width / 2;
+            const centerY = worker.y + worker.height / 2;
+            const dx = worker.target.x - centerX;
+            const dy = worker.target.y - centerY;
+            const dist = Math.hypot(dx, dy);
+
+            if (dist < 2) {
+              worker.target = null;
+            } else {
+              const step = Math.min(dist, worker.idleSpeed * dt);
+              const moveX = (dx / dist) * step;
+              const moveY = (dy / dist) * step;
+              moveWorker(worker, moveX, moveY);
+            }
+          }
+        }
+      });
+    }
+
+    function triggerIdleJump(worker) {
+      worker.hasJumped = true;
+      worker.jumping = true;
+      worker.jumpTime = 0;
+    }
+
+    function pickTargetCell(worker, blocked) {
+      const baseCol = Math.round((worker.x + worker.width / 2) / grid.cell);
+      const baseRow = Math.round((worker.y + worker.height / 2) / grid.cell);
+
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const offsetCol = getRandomInt(-4, 4);
+        const offsetRow = getRandomInt(-3, 3);
+        const col = baseCol + offsetCol;
+        const row = baseRow + offsetRow;
+        if (!withinGrid(col, row)) continue;
+        const key = `${col},${row}`;
+        if (blocked.has(key)) continue;
+        return {
+          x: col * grid.cell + grid.cell / 2,
+          y: row * grid.cell + grid.cell / 2
+        };
+      }
+
+      return null;
+    }
+
+    function moveWorker(worker, dx, dy) {
+      const collisionRects = getCollisionRects({ includeWorkers: true, excludeWorker: worker, includePlayer: true });
+
+      if (dx !== 0) {
+        const nextRect = {
+          x: worker.x + dx,
+          y: worker.y,
+          width: worker.width,
+          height: worker.height
+        };
+        if (!collisionRects.some(s => rectsOverlap(nextRect, s))) {
+          worker.x = nextRect.x;
+        } else {
+          worker.target = null;
+        }
+      }
+
+      if (dy !== 0) {
+        const nextRect = {
+          x: worker.x,
+          y: worker.y + dy,
+          width: worker.width,
+          height: worker.height
+        };
+        if (!collisionRects.some(s => rectsOverlap(nextRect, s))) {
+          worker.y = nextRect.y;
+        } else {
+          worker.target = null;
+        }
+      }
+
+      worker.x = clamp(worker.x, 2, canvas.width - worker.width - 2);
+      worker.y = clamp(worker.y, 2, canvas.height - worker.height - 2);
+    }
+
+    function getRandomInt(min, max) {
+      return Math.floor(Math.random() * (max - min + 1)) + min;
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function drawGrid() {
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
+      ctx.lineWidth = 1;
+      for (let col = 1; col < grid.cols; col++) {
+        const x = col * grid.cell + 0.5;
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvas.height);
+        ctx.stroke();
+      }
+      for (let row = 1; row < grid.rows; row++) {
+        const y = row * grid.cell + 0.5;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+        ctx.stroke();
+      }
+    }
+
+    function drawRocks() {
+      rocks.forEach(rock => {
+        rock.cells.forEach(cell => {
+          const x = cell.col * grid.cell;
+          const y = cell.row * grid.cell;
+          ctx.fillStyle = textures.rock;
+          ctx.fillRect(x, y, grid.cell, grid.cell);
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+          ctx.fillRect(x, y + grid.cell - 6, grid.cell, 6);
+          ctx.strokeStyle = '#11141d';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(x + 1, y + 1, grid.cell - 2, grid.cell - 2);
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
+          ctx.fillRect(x + 6, y + 6, 6, 2);
+        });
+      });
+    }
+
+    function drawZones() {
+      zones.forEach(zone => {
+        ctx.fillStyle = zone.color instanceof CanvasPattern ? zone.color : zone.color;
+        ctx.fillRect(zone.x, zone.y, zone.width, zone.height);
+
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+        ctx.fillRect(zone.x, zone.y, zone.width, 4);
+
+        ctx.strokeStyle = '#0a0d18';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(zone.x, zone.y, zone.width, zone.height);
+
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+        ctx.fillRect(zone.x, zone.y, zone.width, 18);
+
+        ctx.fillStyle = '#f7f7fb';
+        ctx.font = '12px "Press Start 2P", "VT323", monospace';
+        ctx.textBaseline = 'top';
+        ctx.textAlign = 'center';
+        ctx.fillText(zone.name, zone.x + zone.width / 2, zone.y + 2);
+      });
+      ctx.textAlign = 'left';
+    }
+
+    function drawWorkers() {
+      ctx.font = '10px "Press Start 2P", "VT323", monospace';
+      ctx.textBaseline = 'bottom';
+      workers.forEach(worker => {
+        const bodyY = worker.y - worker.jumpOffset;
+        ctx.fillStyle = '#00000088';
+        ctx.fillRect(worker.x - 4, bodyY + worker.height, worker.width + 8, 6);
+
+        const isIdle = worker.state === 'idle';
+        ctx.fillStyle = isIdle ? worker.colorIdle : worker.colorActive;
+        ctx.fillRect(worker.x, bodyY, worker.width, worker.height);
+
+        ctx.fillStyle = isIdle ? '#5b6170' : worker.accentColor;
+        ctx.fillRect(worker.x + 2, bodyY, worker.width - 4, 5);
+
+        ctx.fillStyle = isIdle ? '#3f4554' : '#41434f';
+        ctx.fillRect(worker.x + 4, bodyY + 4, 4, 4);
+        ctx.fillRect(worker.x + worker.width - 8, bodyY + 4, 4, 4);
+
+        ctx.fillStyle = isIdle ? '#6e7280' : '#f08080';
+        ctx.fillRect(worker.x + 6, bodyY + worker.height - 6, worker.width - 12, 4);
+
+        ctx.fillStyle = '#000000aa';
+        ctx.fillRect(worker.x - 18, bodyY - 24, worker.width + 36, 18);
+
+        ctx.fillStyle = '#dfe1f9';
+        ctx.textAlign = 'center';
+        ctx.fillText(worker.name, worker.x + worker.width / 2, bodyY - 6);
+        ctx.fillStyle = isIdle ? '#9aa0b7' : '#f4a261';
+        ctx.fillText(worker.state, worker.x + worker.width / 2, bodyY - 18);
+      });
+      ctx.textAlign = 'left';
+    }
+
+    function drawPlayer() {
+      ctx.fillStyle = '#00000088';
+      ctx.fillRect(player.x - 4, player.y + player.height, player.width + 8, 6);
+
+      ctx.fillStyle = '#1d1f2f';
+      ctx.fillRect(player.x + 4, player.y + 4, player.width - 8, player.height - 8);
+
+      ctx.fillStyle = player.color;
+      ctx.fillRect(player.x, player.y, player.width, player.height - 6);
+
+      ctx.fillStyle = '#2b2e4a';
+      ctx.fillRect(player.x + 6, player.y + 4, 4, 4);
+      ctx.fillRect(player.x + player.width - 10, player.y + 4, 4, 4);
+
+      ctx.fillStyle = '#f08080';
+      ctx.fillRect(player.x + 6, player.y + player.height - 14, player.width - 12, 8);
+
+      ctx.fillStyle = '#41436a';
+      ctx.fillRect(player.x + 2, player.y + player.height - 6, player.width - 4, 6);
+    }
+
+    function drawScene() {
+      if (textures.grass) {
+        ctx.fillStyle = textures.grass;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      } else {
+        ctx.fillStyle = '#0e1320';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+      drawGrid();
+      drawRocks();
+      drawZones();
+      drawWorkers();
+      drawPlayer();
+    }
+
+    function update(dt) {
+      if (!isPaused) {
+        handleMovement(dt);
+        totalTime += dt * speedMultiplier;
+        progress = Math.min(1, progress + dt * 0.005 * speedMultiplier);
+        updateWorkers(dt * speedMultiplier);
+      }
+      updateHUD();
+    }
+
+    function getContextZone() {
+      const playerRect = {
+        x: player.x,
+        y: player.y,
+        width: player.width,
+        height: player.height
+      };
+      return zones.find(zone => rectsOverlap(playerRect, expandedRect(zone, 10)));
+    }
+
+    function showBubble(message) {
+      bubble.textContent = message;
+      bubble.style.display = 'block';
+      positionBubble();
+      if (bubbleTimeout) {
+        clearTimeout(bubbleTimeout);
+      }
+      bubbleTimeout = setTimeout(() => {
+        bubble.style.display = 'none';
+      }, 2200);
+    }
+
+    function interact() {
+      const zone = getContextZone();
+      if (zone) {
+        showBubble(`${zone.name}: ${zone.description}`);
+      } else {
+        showBubble('You wave into the quiet night. Nothing happens.');
+      }
+    }
+
+    function togglePause() {
+      isPaused = !isPaused;
+      document.getElementById('pauseBtn').textContent = isPaused ? 'Resume' : 'Pause';
+      statusEl.textContent = isPaused ? 'Simulation paused.' : 'Simulation running.';
+    }
+
+    function cycleSpeed() {
+      speedIndex = (speedIndex + 1) % speedOptions.length;
+      speedMultiplier = speedOptions[speedIndex];
+      document.getElementById('speedBtn').textContent = `Speed: ${speedMultiplier}×`;
+      statusEl.textContent = `Speed set to ${speedMultiplier.toFixed(1)}×.`;
+    }
+
+    function toggleContrast() {
+      document.body.classList.toggle('high-contrast');
+      statusEl.textContent = document.body.classList.contains('high-contrast')
+        ? 'High contrast enabled.'
+        : 'High contrast disabled.';
+    }
+
+    function handleWorkerClick(workerName) {
+      const worker = workers.find(w => w.name === workerName);
+      if (worker) {
+        worker.state = 'idle';
+        worker.hasJumped = false;
+        triggerIdleJump(worker);
+        worker.target = null;
+        worker.idleCooldown = Math.random() * 0.5;
+      }
+      statusEl.textContent = `${workerName} does a little idle hop.`;
+      showBubble(`${workerName} keeps idling for now.`);
+      refreshWorkerButtons();
+    }
+
+    function refreshWorkerButtons() {
+      workerButtons.forEach(btn => {
+        const workerName = btn.dataset.worker === 'builder' ? 'Builder' : 'Delivery';
+        const worker = workers.find(w => w.name === workerName);
+        if (worker) {
+          const label = btn.querySelector('span');
+          if (label) {
+            label.textContent = worker.state;
+          }
+        }
+      });
+    }
+
+    function positionBubble() {
+      if (bubble.style.display === 'none') {
+        return;
+      }
+      const rect = canvas.getBoundingClientRect();
+      const pageX = rect.left + window.scrollX + player.x + player.width / 2;
+      const pageY = rect.top + window.scrollY + player.y - 10;
+      bubble.style.left = `${pageX}px`;
+      bubble.style.top = `${pageY}px`;
+    }
+
+    document.addEventListener('keydown', (event) => {
+      if (event.code === 'Space') {
+        event.preventDefault();
+        interact();
+        return;
+      }
+      keys[event.code] = true;
+    });
+
+    document.addEventListener('keyup', (event) => {
+      keys[event.code] = false;
+    });
+
+    window.addEventListener('resize', positionBubble);
+    window.addEventListener('scroll', positionBubble);
+
+    document.getElementById('pauseBtn').addEventListener('click', togglePause);
+    document.getElementById('speedBtn').addEventListener('click', cycleSpeed);
+    document.getElementById('contrastBtn').addEventListener('click', toggleContrast);
+
+    workerButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const workerName = btn.dataset.worker === 'builder' ? 'Builder' : 'Delivery';
+        handleWorkerClick(workerName);
+      });
+    });
+
+    updateHUD();
+    refreshWorkerButtons();
+    drawScene();
+    setInterval(() => {
+      update(1 / 30);
+      drawScene();
+      positionBubble();
+    }, frameDuration);
+  </script>
+</body>
+</html>
