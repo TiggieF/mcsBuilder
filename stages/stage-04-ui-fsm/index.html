@@ -42,7 +42,7 @@
 
     .hud {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
       gap: 1rem;
       padding: 0.75rem 1.25rem;
       background: var(--hud-bg);
@@ -65,7 +65,7 @@
 
     .hud-item .value {
       color: var(--accent);
-      font-size: 0.75rem;
+      font-size: 0.8rem;
     }
 
     .hud-item.bar-item {
@@ -127,6 +127,56 @@
       flex-direction: column;
       gap: 1rem;
       height: fit-content;
+    }
+
+    body.game-complete canvas {
+      filter: grayscale(0.25) brightness(0.82);
+    }
+
+    #winOverlay {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(5, 7, 12, 0.76);
+      backdrop-filter: blur(4px);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+      z-index: 40;
+    }
+
+    #winOverlay.show {
+      opacity: 1;
+      pointer-events: all;
+    }
+
+    #winOverlay .win-panel {
+      background: rgba(16, 18, 32, 0.95);
+      border: 3px solid var(--panel-border);
+      padding: 2rem 2.5rem;
+      text-align: center;
+      box-shadow: 0 18px 36px rgba(0, 0, 0, 0.45);
+      width: min(90vw, 420px);
+    }
+
+    #winOverlay .win-panel h2 {
+      font-size: 1.1rem;
+      margin-bottom: 1rem;
+      letter-spacing: 0.1em;
+    }
+
+    #winOverlay .win-panel p {
+      font-size: 0.85rem;
+      margin: 0 0 1.25rem;
+      color: rgba(245, 245, 248, 0.85);
+    }
+
+    #winOverlay .win-panel button {
+      width: auto;
+      padding: 0.75rem 1.5rem;
+      font-size: 0.85rem;
     }
 
     .panel button {
@@ -278,11 +328,15 @@
       </div>
     </div>
     <div class="hud-item bar-item">
-      <span class="label">Progress</span>
+      <span class="label">Campus Progress</span>
       <div class="bar" id="progressBar">
         <div class="fill" id="progressFill"></div>
         <span class="bar-text" id="progressText">12%</span>
       </div>
+    </div>
+    <div class="hud-item">
+      <span class="label">Floors Complete</span>
+      <span class="value" id="hud-floors">0 / 10</span>
     </div>
     <div class="hud-item">
       <span class="label">Current Floor</span>
@@ -291,6 +345,10 @@
     <div class="hud-item">
       <span class="label">Total Time</span>
       <span class="value" id="hud-time">00:00</span>
+    </div>
+    <div class="hud-item">
+      <span class="label">Delivery Level</span>
+      <span class="value" id="hud-delivery">L1 · 5 SP</span>
     </div>
   </div>
   <div class="main-wrapper">
@@ -306,7 +364,11 @@
             <h3>Builder</h3>
             <span class="order-label">Idle</span>
           </div>
-          <p class="summary">Stamina: <span class="stamina">5.0</span> / 5 · State: <span class="state">idle</span></p>
+          <p class="summary">
+            Stamina: <span class="stamina">5.0</span> / <span class="stamina-max">5</span>
+            · Level <span class="level">1</span>
+            · State: <span class="state">idle</span>
+          </p>
           <div class="worker-actions">
             <button type="button" data-action="build">Build</button>
             <button type="button" data-action="rest">Rest</button>
@@ -318,7 +380,11 @@
             <h3>Delivery</h3>
             <span class="order-label">Idle</span>
           </div>
-          <p class="summary">Stamina: <span class="stamina">5.0</span> / 5 · State: <span class="state">idle</span></p>
+          <p class="summary">
+            Stamina: <span class="stamina">5.0</span> / <span class="stamina-max">5</span>
+            · Level <span class="level">1</span>
+            · State: <span class="state">idle</span>
+          </p>
           <div class="worker-actions">
             <button type="button" data-action="fetch">Fetch</button>
             <button type="button" data-action="rest">Rest</button>
@@ -333,6 +399,13 @@
       <p class="status" id="panelStatus">Awaiting input…</p>
     </aside>
   </div>
+  <div id="winOverlay" role="dialog" aria-modal="true" aria-labelledby="winTitle">
+    <div class="win-panel">
+      <h2 id="winTitle">Construction Complete!</h2>
+      <p>Total Time: <span id="winTime">00:00</span></p>
+      <button id="restartBtn" type="button">Restart Project</button>
+    </div>
+  </div>
   <div id="textBubble" role="status" aria-live="polite"></div>
   <script>
     const canvas = document.getElementById('gameCanvas');
@@ -342,10 +415,14 @@
     const grid = { cols: 38, rows: 20, cell: 30 };
     const FPS = 30;
     const frameDuration = 1000 / FPS;
-    const MAX_STAMINA = 5;
+    const MAX_FLOORS = 10;
+    const BUILDER_BASE_STAMINA = 5;
+    const DELIVERY_BASE_STAMINA = 5;
+    const DELIVERY_STAMINA_PER_FLOOR = 2;
     const STAMINA_REST_RATE = 0.25 / 1.5;
-    const STAMINA_TRIP_COST = 0.35 * 1.5;
+    const DELIVERY_TRIP_COST = 0.5;
     const STAMINA_BUILD_COST = 2.5;
+    const DELIVERY_LEVEL_FLASH_DURATION = 2.4;
     const WORKER_ACTIVE_SPEED = 85;
     const WORKER_CARRY_SPEED = 75;
     const DELIVERY_LOAD_TIME = 1.1;
@@ -454,33 +531,45 @@
       playerCell = findNearestWalkableCell(playerCell, blockedCells);
     }
 
+    const spawnCell = { ...playerCell };
     const rockTiles = buildRockTiles(rocks);
     const solidRects = [...zones, ...rockTiles];
 
-    const state = createInitialState(playerCell, blockedCells);
-    const player = state.player;
-    const workers = state.workers;
+    let state = createInitialState(spawnCell, blockedCells);
+    let player = state.player;
+    let workers = state.workers;
 
     refreshMcsZoneTexture();
 
     const keys = {};
     let isPaused = false;
-    const speedOptions = [0.5, 1, 2, 3, 4, 8, 16];
+    const speedOptions = [0.5, 1, 2, 4, 8, 16, 32, 64, 128];
     let speedIndex = speedOptions.indexOf(1);
     state.time.speed = speedOptions[speedIndex];
     let bubbleTimeout = null;
+    let gameComplete = false;
+    let finishTime = 0;
 
     const statusEl = document.getElementById('panelStatus');
     const hudFloor = document.getElementById('hud-floor');
     const hudTime = document.getElementById('hud-time');
+    const hudFloors = document.getElementById('hud-floors');
+    const hudDelivery = document.getElementById('hud-delivery');
+    const pauseBtn = document.getElementById('pauseBtn');
+    const speedBtn = document.getElementById('speedBtn');
+    const contrastBtn = document.getElementById('contrastBtn');
     const woodFill = document.getElementById('woodFill');
     const woodText = document.getElementById('woodText');
     const progressFill = document.getElementById('progressFill');
     const progressText = document.getElementById('progressText');
     const bubble = document.getElementById('textBubble');
+    const winOverlay = document.getElementById('winOverlay');
+    const winTimeEl = document.getElementById('winTime');
+    const restartBtn = document.getElementById('restartBtn');
     const workerCards = Array.from(document.querySelectorAll('.worker-card'));
     fsmLogEl = document.getElementById('fsmLog');
     bubble.style.display = 'none';
+    updateSpeedLabel();
 
     function rectsOverlap(a, b) {
       return a.x < b.x + b.width &&
@@ -715,6 +804,16 @@
       worker.y = center.y - worker.height / 2;
     }
 
+    function getWorkerMaxStamina(worker) {
+      if (!worker) {
+        return BUILDER_BASE_STAMINA;
+      }
+      if (typeof worker.maxStamina === 'number') {
+        return worker.maxStamina;
+      }
+      return worker.role === 'delivery' ? DELIVERY_BASE_STAMINA : BUILDER_BASE_STAMINA;
+    }
+
     function formatTime(seconds) {
       const mins = Math.floor(seconds / 60).toString().padStart(2, '0');
       const secs = Math.floor(seconds % 60).toString().padStart(2, '0');
@@ -737,18 +836,36 @@
 
 
     function updateHUD() {
-      hudFloor.textContent = `${state.floor.n}`;
-      const need = state.floor.need || 1;
-      const woodRatio = Math.max(0, Math.min(1, state.stock.wood / need));
+      const floorNumber = Math.min(state.floor.n, MAX_FLOORS);
+      hudFloor.textContent = `${floorNumber}`;
+
+      const currentNeed = state.floor.need;
+      const woodRatio = currentNeed <= 0
+        ? 1
+        : Math.max(0, Math.min(1, state.stock.wood / currentNeed));
       const woodAmount = Number.isInteger(state.stock.wood)
         ? state.stock.wood
         : state.stock.wood.toFixed(1);
-      woodText.textContent = `${woodAmount}/${need}`;
+      const woodNeedDisplay = currentNeed > 0 ? currentNeed : '—';
+      woodText.textContent = `${woodAmount}/${woodNeedDisplay}`;
       woodFill.style.width = `${woodRatio * 100}%`;
-      const progressPercent = Math.max(0, Math.min(1, state.floor.progress)) * 100;
-      progressText.textContent = `${Math.round(progressPercent)}%`;
-      progressFill.style.width = `${progressPercent}%`;
-      hudTime.textContent = formatTime(state.time.elapsed);
+
+      const floorsBuilt = state.progress.floorsBuilt;
+      const totalFloors = state.progress.totalFloors;
+      const overallProgress = Math.max(0, Math.min(1, (floorsBuilt + state.floor.progress) / totalFloors));
+      const overallPercent = Math.round(overallProgress * 100);
+      progressText.textContent = `${overallPercent}%`;
+      progressFill.style.width = `${overallPercent}%`;
+      hudFloors.textContent = `${floorsBuilt} / ${totalFloors}`;
+
+      const deliveryWorker = workers.find(worker => worker.role === 'delivery');
+      if (deliveryWorker) {
+        const deliveryMax = getWorkerMaxStamina(deliveryWorker);
+        hudDelivery.textContent = `L${deliveryWorker.level} · ${Math.round(deliveryMax)} SP`;
+      }
+
+      const timeDisplay = gameComplete ? finishTime : state.time.elapsed;
+      hudTime.textContent = formatTime(timeDisplay);
     }
 
     function createGrassPattern(primary, secondary, accent) {
@@ -871,7 +988,7 @@
       if (!info || !state || !state.floor) {
         return;
       }
-      const builtFloors = Math.max(0, state.floor.n - 1);
+      const builtFloors = Math.max(0, state.progress ? state.progress.floorsBuilt : state.floor.n - 1);
       const pattern = getMcsPatternForFloorsBuilt(builtFloors);
       info.zone.color = pattern;
       textures.mcs = pattern;
@@ -1264,6 +1381,7 @@
       const workers = createWorkers(playerCell, blocked);
       return {
         time: { elapsed: 0, speed: 1 },
+        progress: { floorsBuilt: 0, totalFloors: MAX_FLOORS },
         floor: { n: 1, progress: 0, need: woodNeeded(1), buildTime: buildTimeFor(1) },
         stock: { wood: 2 },
         player,
@@ -1281,6 +1399,7 @@
     function createWorker(id, role, name, cell, idleColor, activeColor, accentColor) {
       const width = 20;
       const height = 20;
+      const maxStamina = role === 'delivery' ? DELIVERY_BASE_STAMINA : BUILDER_BASE_STAMINA;
       return {
         id,
         role,
@@ -1294,7 +1413,10 @@
         colorActive: activeColor,
         accentColor,
         order: 'idle',
-        stamina: MAX_STAMINA,
+        stamina: maxStamina,
+        maxStamina,
+        level: 1,
+        levelGlow: 0,
         inv: 0,
         orderStarted: false,
         tripTimer: 0,
@@ -1369,29 +1491,41 @@
     }
 
     function updateWorkers(dt) {
-      const scaledDt = dt * state.time.speed;
+      const simDt = gameComplete ? 0 : dt * state.time.speed;
+      const animDt = gameComplete ? dt : simDt;
       workers.forEach(worker => {
-        worker.pathReplanTimer += scaledDt;
+        worker.pathReplanTimer += simDt;
         if (worker.pathFailureCooldown > 0) {
-          worker.pathFailureCooldown = Math.max(0, worker.pathFailureCooldown - scaledDt);
+          worker.pathFailureCooldown = Math.max(0, worker.pathFailureCooldown - simDt);
         }
-        if (worker.target || (worker.path && worker.path.length > 0)) {
-          if (worker.pathReplanTimer >= PATH_REPLAN_INTERVAL) {
-            worker.pathNeedsRecalc = true;
+        if (!gameComplete) {
+          if (worker.target || (worker.path && worker.path.length > 0)) {
+            if (worker.pathReplanTimer >= PATH_REPLAN_INTERVAL) {
+              worker.pathNeedsRecalc = true;
+              worker.pathReplanTimer = 0;
+            }
+          } else {
             worker.pathReplanTimer = 0;
           }
         } else {
-          worker.pathReplanTimer = 0;
+          worker.target = null;
+          worker.path = null;
         }
 
-        processWorkerOrder(worker, scaledDt);
+        if (!gameComplete) {
+          processWorkerOrder(worker, simDt);
+        }
 
-        if (worker.order === 'idle' && worker.visible && !worker.hasJumped) {
+        if (worker.order === 'idle' && worker.visible && !worker.hasJumped && !gameComplete) {
           triggerIdleJump(worker);
         }
 
+        if (worker.levelGlow > 0) {
+          worker.levelGlow = Math.max(0, worker.levelGlow - animDt);
+        }
+
         if (worker.jumping) {
-          worker.jumpTime += scaledDt;
+          worker.jumpTime += animDt;
           const jumpProgress = Math.min(worker.jumpTime / worker.jumpDuration, 1);
           worker.jumpOffset = Math.sin(jumpProgress * Math.PI) * worker.jumpHeight;
           if (jumpProgress >= 1) {
@@ -1400,9 +1534,9 @@
           }
         }
 
-        if (worker.order === 'idle' && worker.visible) {
+        if (!gameComplete && worker.order === 'idle' && worker.visible) {
           if (worker.idleCooldown > 0) {
-            worker.idleCooldown -= scaledDt;
+            worker.idleCooldown -= simDt;
           } else if (!worker.target) {
             const target = pickTargetCell(worker, blockedCells);
             if (target) {
@@ -1412,7 +1546,7 @@
           }
 
           if (worker.target) {
-            const reached = moveWorkerToward(worker, worker.target, worker.idleSpeed, scaledDt);
+            const reached = moveWorkerToward(worker, worker.target, worker.idleSpeed, simDt);
             if (reached) {
               setWorkerDestination(worker, null);
             }
@@ -1422,6 +1556,10 @@
     }
 
     function processWorkerOrder(worker, dt) {
+      if (gameComplete) {
+        worker.orderStarted = false;
+        return;
+      }
       if (worker.order === 'rest') {
         handleRest(worker, dt);
         return;
@@ -1575,7 +1713,7 @@
           state.stock.wood = Math.min(state.floor.need, state.stock.wood + delivered);
           worker.inv -= delivered;
           worker.stateMachine.transition('dropComplete', worker);
-          worker.stamina = Math.max(0, worker.stamina - STAMINA_TRIP_COST);
+          worker.stamina = Math.max(0, worker.stamina - DELIVERY_TRIP_COST);
           statusEl.textContent = `${worker.name} delivered ${delivered} wood.`;
           if (worker.stamina <= 0) {
             setWorkerOrder(worker, 'rest', `${worker.name} is exhausted and heads to the dorm.`);
@@ -1613,9 +1751,10 @@
       }
 
       if (worker.activity === 'resting') {
-        worker.stamina = Math.min(MAX_STAMINA, worker.stamina + STAMINA_REST_RATE * dt);
-        if (worker.stamina >= MAX_STAMINA - 0.01) {
-          worker.stamina = MAX_STAMINA;
+        const maxStamina = getWorkerMaxStamina(worker);
+        worker.stamina = Math.min(maxStamina, worker.stamina + STAMINA_REST_RATE * dt);
+        if (worker.stamina >= maxStamina - 0.01) {
+          worker.stamina = maxStamina;
           worker.visible = true;
           if (worker.restAnchor) {
             alignWorkerToCenter(worker, worker.restAnchor);
@@ -1626,16 +1765,108 @@
       }
     }
 
+    function celebrateDeliveryLevelUp() {
+      const deliveryWorker = workers.find(w => w.role === 'delivery');
+      if (!deliveryWorker || !state.progress) {
+        return;
+      }
+      const floorsBuilt = state.progress.floorsBuilt;
+      const totalFloors = state.progress.totalFloors;
+      deliveryWorker.maxStamina = DELIVERY_BASE_STAMINA + DELIVERY_STAMINA_PER_FLOOR * floorsBuilt;
+      deliveryWorker.stamina = deliveryWorker.maxStamina;
+      deliveryWorker.level = Math.min(totalFloors + 1, floorsBuilt + 1);
+      deliveryWorker.levelGlow = DELIVERY_LEVEL_FLASH_DURATION;
+      deliveryWorker.hasJumped = false;
+      triggerIdleJump(deliveryWorker);
+      refreshWorkerCards();
+    }
+
     function completeFloor() {
       const finished = state.floor.n;
-      state.floor.n += 1;
+      state.progress.floorsBuilt = Math.min(state.progress.floorsBuilt + 1, state.progress.totalFloors);
+      celebrateDeliveryLevelUp();
+
+      if (finished >= MAX_FLOORS) {
+        state.floor.progress = 1;
+        state.floor.need = 0;
+        refreshMcsZoneTexture();
+        triggerWin(finished);
+        return;
+      }
+
+      state.floor.n = Math.min(finished + 1, MAX_FLOORS);
       state.floor.progress = 0;
       state.floor.need = woodNeeded(state.floor.n);
       state.floor.buildTime = buildTimeFor(state.floor.n);
       state.stock.wood = Math.min(state.stock.wood, state.floor.need);
       refreshMcsZoneTexture();
-      statusEl.textContent = `Floor ${finished} complete! Preparing materials for floor ${state.floor.n}.`;
+      const message = `Floor ${finished} complete! Preparing materials for floor ${state.floor.n}.`;
+      statusEl.textContent = message;
       showBubble(`Floor ${finished} complete!`);
+    }
+
+    function triggerWin(finalFloor) {
+      if (gameComplete) {
+        return;
+      }
+      gameComplete = true;
+      finishTime = state.time.elapsed;
+      state.time.speed = 0;
+      updateSpeedLabel();
+      document.body.classList.add('game-complete');
+      if (winOverlay) {
+        winOverlay.classList.add('show');
+      }
+      if (winTimeEl) {
+        winTimeEl.textContent = formatTime(finishTime);
+      }
+      if (pauseBtn) {
+        pauseBtn.textContent = 'Paused';
+        pauseBtn.disabled = true;
+      }
+      if (speedBtn) {
+        speedBtn.disabled = true;
+      }
+      if (restartBtn) {
+        restartBtn.focus();
+      }
+      const message = `Construction complete! ${finalFloor} floors ready for class.`;
+      statusEl.textContent = message;
+      showBubble(`Campus ready in ${formatTime(finishTime)}!`);
+    }
+
+    function restartGame() {
+      if (bubbleTimeout) {
+        clearTimeout(bubbleTimeout);
+        bubbleTimeout = null;
+      }
+      state = createInitialState(spawnCell, blockedCells);
+      player = state.player;
+      workers = state.workers;
+      state.time.speed = speedOptions[speedIndex];
+      updateSpeedLabel();
+      finishTime = 0;
+      gameComplete = false;
+      isPaused = false;
+      document.body.classList.remove('game-complete');
+      if (winOverlay) {
+        winOverlay.classList.remove('show');
+      }
+      if (winTimeEl) {
+        winTimeEl.textContent = '00:00';
+      }
+      if (pauseBtn) {
+        pauseBtn.disabled = false;
+        pauseBtn.textContent = 'Pause';
+      }
+      if (speedBtn) {
+        speedBtn.disabled = false;
+      }
+      refreshMcsZoneTexture();
+      statusEl.textContent = 'Project reset. Ready for another build!';
+      showBubble('Fresh blueprint loaded. Let\'s build again!');
+      refreshWorkerCards();
+      updateHUD();
     }
 
     function triggerIdleJump(worker) {
@@ -1939,8 +2170,62 @@
         ctx.font = '10px "Press Start 2P", "VT323", monospace';
         ctx.fillStyle = 'rgba(252, 227, 138, 0.85)';
         ctx.fillText('SPACE', zone.x + zone.width / 2, zone.y + zone.height - 18);
+
+        if (zone.name === 'MCS Construction') {
+          drawFloorProgress(zone);
+        }
       });
       ctx.textAlign = 'left';
+    }
+
+    function drawFloorProgress(zone) {
+      if (!state || !state.progress) {
+        return;
+      }
+      const totalFloors = state.progress.totalFloors;
+      const floorsBuilt = Math.min(state.progress.floorsBuilt, totalFloors);
+      const currentFloorProgress = Math.min(1, state.floor.progress);
+      const overallProgress = Math.min(1, (floorsBuilt + currentFloorProgress) / totalFloors);
+
+      const padding = 10;
+      const segmentSpacing = 4;
+      const barWidth = zone.width - padding * 2;
+      const segmentWidth = (barWidth - (totalFloors - 1) * segmentSpacing) / totalFloors;
+      const barX = zone.x + padding;
+      const barY = Math.max(16, zone.y - 30);
+
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = '10px "Press Start 2P", "VT323", monospace';
+
+      ctx.fillStyle = 'rgba(6, 8, 18, 0.78)';
+      ctx.fillRect(barX - 12, barY - 18, barWidth + 24, 36);
+      ctx.strokeStyle = 'rgba(252, 227, 138, 0.45)';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(barX - 12, barY - 18, barWidth + 24, 36);
+
+      for (let i = 0; i < totalFloors; i += 1) {
+        const segmentX = barX + i * (segmentWidth + segmentSpacing);
+        const completion = i < floorsBuilt ? 1 : i === floorsBuilt ? currentFloorProgress : 0;
+        ctx.fillStyle = 'rgba(32, 36, 56, 0.9)';
+        ctx.fillRect(segmentX, barY - 6, segmentWidth, 12);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+        ctx.strokeRect(segmentX, barY - 6, segmentWidth, 12);
+        if (completion > 0) {
+          const gradient = ctx.createLinearGradient(segmentX, barY - 6, segmentX + segmentWidth, barY + 6);
+          gradient.addColorStop(0, '#67f3a2');
+          gradient.addColorStop(1, '#2db4ff');
+          ctx.fillStyle = gradient;
+          ctx.fillRect(segmentX, barY - 6, segmentWidth * completion, 12);
+        }
+      }
+
+      ctx.fillStyle = '#f7f7fb';
+      ctx.fillText(`Floor ${Math.min(state.floor.n, totalFloors)} of ${totalFloors}`, barX + barWidth / 2, barY - 12);
+      ctx.fillStyle = 'rgba(252, 227, 138, 0.95)';
+      ctx.fillText(`${Math.round(overallProgress * 100)}%`, barX + barWidth / 2, barY + 10);
+      ctx.restore();
     }
 
     function drawWorkers() {
@@ -1955,29 +2240,44 @@
         ctx.fillRect(worker.x - 4, bodyY + worker.height, worker.width + 8, 6);
 
         const isIdle = worker.order === 'idle';
-        ctx.fillStyle = isIdle ? worker.colorIdle : worker.colorActive;
+        const highlight = worker.role === 'delivery' && worker.levelGlow > 0;
+        const idleColor = highlight ? '#ffe082' : worker.colorIdle;
+        const activeColor = highlight ? '#ffb300' : worker.colorActive;
+        const accentColor = highlight ? '#ffe9a6' : worker.accentColor;
+        const idleAccent = highlight ? '#e0c777' : '#5b6170';
+        const beltColor = highlight ? '#ffbfa5' : (isIdle ? '#6e7280' : '#f08080');
+        const infoBg = highlight ? 'rgba(66, 42, 12, 0.85)' : '#1d2238ee';
+        const nameColor = highlight ? '#ffe082' : '#f7f7fb';
+        const levelColor = highlight ? '#fff4c1' : '#9aa0b7';
+        const stateColor = highlight ? '#fff0a6' : (isIdle ? '#9aa0b7' : '#fce38a');
+
+        ctx.fillStyle = isIdle ? idleColor : activeColor;
         ctx.fillRect(worker.x, bodyY, worker.width, worker.height);
 
-        ctx.fillStyle = isIdle ? '#5b6170' : worker.accentColor;
+        ctx.fillStyle = isIdle ? idleAccent : accentColor;
         ctx.fillRect(worker.x + 2, bodyY, worker.width - 4, 5);
 
         ctx.fillStyle = isIdle ? '#3f4554' : '#41434f';
         ctx.fillRect(worker.x + 4, bodyY + 4, 4, 4);
         ctx.fillRect(worker.x + worker.width - 8, bodyY + 4, 4, 4);
 
-        ctx.fillStyle = isIdle ? '#6e7280' : '#f08080';
+        ctx.fillStyle = beltColor;
         ctx.fillRect(worker.x + 6, bodyY + worker.height - 6, worker.width - 12, 4);
 
-        ctx.fillStyle = '#1d2238ee';
-        ctx.fillRect(worker.x - 18, bodyY - 34, worker.width + 36, 30);
+        ctx.fillStyle = infoBg;
+        ctx.fillRect(worker.x - 20, bodyY - 48, worker.width + 40, 42);
 
-        ctx.fillStyle = '#f7f7fb';
         ctx.textAlign = 'center';
-        ctx.fillText(worker.name, worker.x + worker.width / 2, bodyY - 12);
-        ctx.fillStyle = isIdle ? '#9aa0b7' : '#fce38a';
-        const staminaText = `${worker.stamina.toFixed(1)}/${MAX_STAMINA}`;
+        ctx.fillStyle = levelColor;
+        ctx.fillText(`L${worker.level}`, worker.x + worker.width / 2, bodyY - 34);
+
+        ctx.fillStyle = nameColor;
+        ctx.fillText(worker.name, worker.x + worker.width / 2, bodyY - 20);
+
+        ctx.fillStyle = stateColor;
+        const staminaText = `${worker.stamina.toFixed(1)}/${getWorkerMaxStamina(worker)}`;
         const stateLabel = formatStateLabel(worker.stateMachine.state);
-        ctx.fillText(`${stateLabel} · ${staminaText}`, worker.x + worker.width / 2, bodyY - 26);
+        ctx.fillText(`${stateLabel} · ${staminaText}`, worker.x + worker.width / 2, bodyY - 6);
       });
       ctx.textAlign = 'left';
     }
@@ -2032,11 +2332,16 @@
 
     function update(dt) {
       if (!isPaused) {
-        handleMovement(dt);
+        if (!gameComplete) {
+          handleMovement(dt);
+        }
         const scaledDt = dt * state.time.speed;
-        state.time.elapsed += scaledDt;
+        if (!gameComplete) {
+          state.time.elapsed += scaledDt;
+        }
         if (player.cooldown > 0) {
-          player.cooldown = Math.max(0, player.cooldown - scaledDt);
+          const cooldownDelta = gameComplete ? dt : scaledDt;
+          player.cooldown = Math.max(0, player.cooldown - cooldownDelta);
         }
         updateWorkers(dt);
       }
@@ -2071,6 +2376,11 @@
       }
       player.cooldown = PLAYER_INTERACT_COOLDOWN;
 
+      if (gameComplete) {
+        showBubble('Campus is complete! Tap restart to run it again.');
+        return;
+      }
+
       const zone = getContextZone();
       const nearbyWorker = findNearbyWorker();
 
@@ -2092,7 +2402,9 @@
 
       if (nearbyWorker) {
         const stamina = nearbyWorker.stamina.toFixed(1);
-        showBubble(`${nearbyWorker.name}: ${stamina}/${MAX_STAMINA} stamina.`);
+        const staminaCap = getWorkerMaxStamina(nearbyWorker);
+        const staminaCapText = Number.isInteger(staminaCap) ? staminaCap : staminaCap.toFixed(1);
+        showBubble(`${nearbyWorker.name}: ${stamina}/${staminaCapText} stamina.`);
         return;
       }
 
@@ -2123,8 +2435,9 @@
 
     function deliverCoffee() {
       player.item = 'none';
-      state.workers.forEach(worker => {
-        worker.stamina = MAX_STAMINA;
+      workers.forEach(worker => {
+        const maxStamina = getWorkerMaxStamina(worker);
+        worker.stamina = maxStamina;
         if (worker.order === 'rest') {
           worker.visible = true;
           if (worker.restAnchor) {
@@ -2140,16 +2453,33 @@
     }
 
     function togglePause() {
+      if (gameComplete) {
+        showBubble('Project complete! Restart to play again.');
+        return;
+      }
       isPaused = !isPaused;
-      document.getElementById('pauseBtn').textContent = isPaused ? 'Resume' : 'Pause';
+      if (pauseBtn) {
+        pauseBtn.textContent = isPaused ? 'Resume' : 'Pause';
+      }
       statusEl.textContent = isPaused ? 'Simulation paused.' : 'Simulation running.';
     }
 
+    function updateSpeedLabel() {
+      const label = Number.isInteger(state.time.speed) ? state.time.speed : state.time.speed.toFixed(1);
+      if (speedBtn) {
+        speedBtn.textContent = `Speed: ${label}×`;
+      }
+      return label;
+    }
+
     function cycleSpeed() {
+      if (gameComplete) {
+        showBubble('Speed locked — campus is already complete.');
+        return;
+      }
       speedIndex = (speedIndex + 1) % speedOptions.length;
       state.time.speed = speedOptions[speedIndex];
-      const label = Number.isInteger(state.time.speed) ? state.time.speed : state.time.speed.toFixed(1);
-      document.getElementById('speedBtn').textContent = `Speed: ${label}×`;
+      const label = updateSpeedLabel();
       statusEl.textContent = `Speed set to ${label}×.`;
     }
 
@@ -2161,6 +2491,10 @@
     }
 
     function handleWorkerAction(workerKey, action) {
+      if (gameComplete) {
+        showBubble('Project complete! Restart to assign new orders.');
+        return;
+      }
       const worker = workers.find(w => w.role === workerKey);
       if (!worker) {
         return;
@@ -2201,6 +2535,15 @@
         const staminaEl = card.querySelector('.summary .stamina');
         if (staminaEl) {
           staminaEl.textContent = worker.stamina.toFixed(1);
+        }
+        const staminaMaxEl = card.querySelector('.summary .stamina-max');
+        if (staminaMaxEl) {
+          const max = getWorkerMaxStamina(worker);
+          staminaMaxEl.textContent = Number.isInteger(max) ? max : max.toFixed(1);
+        }
+        const levelEl = card.querySelector('.summary .level');
+        if (levelEl) {
+          levelEl.textContent = worker.level;
         }
         const stateEl = card.querySelector('.summary .state');
         if (stateEl) {
@@ -2272,7 +2615,7 @@
           return;
         }
       } else if (newOrder === 'deliver') {
-        if (worker.stamina < STAMINA_TRIP_COST) {
+        if (worker.stamina < DELIVERY_TRIP_COST) {
           const msg = `${worker.name} needs rest before delivering and walks to the dorm.`;
           setWorkerOrder(worker, 'rest', msg);
           return;
@@ -2380,9 +2723,18 @@
     window.addEventListener('resize', positionBubble);
     window.addEventListener('scroll', positionBubble);
 
-    document.getElementById('pauseBtn').addEventListener('click', togglePause);
-    document.getElementById('speedBtn').addEventListener('click', cycleSpeed);
-    document.getElementById('contrastBtn').addEventListener('click', toggleContrast);
+    if (pauseBtn) {
+      pauseBtn.addEventListener('click', togglePause);
+    }
+    if (speedBtn) {
+      speedBtn.addEventListener('click', cycleSpeed);
+    }
+    if (contrastBtn) {
+      contrastBtn.addEventListener('click', toggleContrast);
+    }
+    if (restartBtn) {
+      restartBtn.addEventListener('click', restartGame);
+    }
 
     workerCards.forEach(card => {
       const workerKey = card.dataset.worker;
