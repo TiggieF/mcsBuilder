@@ -2,6 +2,8 @@
 
 Stage 04 builds on the Stage 02 sandbox by giving you a richer command panel, labelled worker actions, and a visible finite state machine (FSM) log. Use this checklist to validate the upgraded controls, confirm HUD accuracy, and verify that state transitions stay coherent while the crews roam the pixel map.
 
+> **Non‑negotiable staging guideline**: once a stage is considered complete we never retro-fit earlier stages, and any follow-up work must restrict changes to the active stage’s code file (only adding or removing functions there).
+
 ## 1. Launch the build
 1. Open `stages/stage-04-ui-fsm/index.html` in a desktop browser (Chrome/Firefox).
 2. Ensure the 1140×600 canvas sits alongside the control panel without scrolling.
@@ -14,12 +16,14 @@ Stage 04 builds on the Stage 02 sandbox by giving you a richer command panel, la
 
 ## 3. Builder command flow
 - Press **Build** on the Builder card. Confirm the order chip switches to **Build**, the button highlights, and the FSM log records an entry like `Idle —build→ Heading To Site`.
+- Step into the builder's route or park near a pond to make sure they steer around you within a second rather than pushing through or freezing.
 - Follow the builder to the MCS edge; once aligned, the on-screen label above their head should change to `Building · x.x/5` (using the formatted state name).
 - Let the floor finish while the builder has <2.5 stamina. They should automatically walk to the dorm, disappear to rest, and the FSM log should show `Building —complete→ Idle` followed by `Heading To Dorm`, `Resting`, and `Recovered` entries.
 - Tap **Cancel** mid-walk to make sure the builder stops, the card shows **Idle**, and the FSM log captures the cancellation.
 
 ## 4. Delivery fetch loop
 - Hit **Fetch** on the Delivery card. Verify the chip reads **Fetch**, the FSM log records a transition into `Heading To Wood`, and the worker routes around obstacles correctly.
+- While they are en route, block a corridor with the player or stand near a rock to ensure the courier pauses briefly and replans within a second instead of getting stuck.
 - Observe the loading pause at the wood house, the march back to MCS, and the delivery animation—each phase should generate log entries (`arriveSource`, `loadComplete`, `arriveSite`, `dropComplete`).
 - Run the courier until stamina hits zero. They should immediately head for the dorm without manual input, log the rest transitions, and resume wandering once recovered.
 - Press **Rest** manually to ensure the courier breaks off their route, heads to the beds, and the state log mirrors the detour.
