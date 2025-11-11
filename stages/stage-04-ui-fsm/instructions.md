@@ -2,6 +2,8 @@
 
 Stage 04 builds on the Stage 02 sandbox by giving you a richer command panel, labelled worker actions, and a visible finite state machine (FSM) log. Use this checklist to validate the upgraded controls, confirm HUD accuracy, and verify that state transitions stay coherent while the crews roam the pixel map.
 
+> **Non‑negotiable staging guideline**: once a stage is considered complete we never retro-fit earlier stages, and any follow-up work must restrict changes to the active stage’s code file (only adding or removing functions there).
+
 ## 1. Launch the build
 1. Open `stages/stage-04-ui-fsm/index.html` in a desktop browser (Chrome/Firefox).
 2. Ensure the 1140×600 canvas sits alongside the control panel without scrolling.

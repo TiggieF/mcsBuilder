@@ -353,6 +353,7 @@
     const WORKER_IDLE_SPEED = 28;
     const WORKER_APPROACH_BUFFER = 4;
     const PATH_REPLAN_INTERVAL = 1;
+    const PATH_FAILURE_RETRY = 0.45;
     const WOOD_BASE = 10;
     const WOOD_PER_FLOOR = 5;
     const BUILD_BASE = 5;
@@ -405,9 +406,22 @@
     canvas.width = grid.cols * grid.cell;
     canvas.height = grid.rows * grid.cell;
 
+    const MCS_FLOOR_PALETTES = [
+      { primary: '#303a65', secondary: '#47578c', shadow: '#1d233c' },
+      { primary: '#2f4f6f', secondary: '#4b6d98', shadow: '#1a2d45' },
+      { primary: '#2b5d4a', secondary: '#3f8b6b', shadow: '#162e25' },
+      { primary: '#5d542b', secondary: '#8b7a3f', shadow: '#2e2716' },
+      { primary: '#5d2b4b', secondary: '#8b3f6d', shadow: '#2e1625' },
+      { primary: '#2b5d5b', secondary: '#3f8b87', shadow: '#162e2c' }
+    ];
+
     const textures = {
       grass: createGrassPattern('#1f3a1c', '#2f5327', '#3f6d31'),
-      mcs: createStripedPattern('#303a65', '#47578c', '#1d233c'),
+      mcs: createStripedPattern(
+        MCS_FLOOR_PALETTES[0].primary,
+        MCS_FLOOR_PALETTES[0].secondary,
+        MCS_FLOOR_PALETTES[0].shadow
+      ),
       building: createBrickPattern('#744d2b', '#4b321b', '#301f10'),
       cafe: createBrickPattern('#223937', '#1b2c2a', '#12201e'),
       dorm: createStripedPattern('#3e2b58', '#5b3f7a', '#211334'),
@@ -446,6 +460,8 @@
     const state = createInitialState(playerCell, blockedCells);
     const player = state.player;
     const workers = state.workers;
+
+    refreshMcsZoneTexture();
 
     const keys = {};
     let isPaused = false;
@@ -541,12 +557,21 @@
         return null;
       }
 
-      const extraBlocked = computeDynamicBlockers(worker, goalKey);
+      const dynamicBlockers = computeDynamicBlockers(worker, goalKey);
+      let path = findPathWithBlockers(start, goal, goalKey, dynamicBlockers);
+      if (!path && dynamicBlockers.size > 0) {
+        path = findPathWithBlockers(start, goal, goalKey, null);
+      }
+      return path;
+    }
+
+    function findPathWithBlockers(start, goal, goalKey, dynamicBlockers) {
       const open = new Map();
       const openList = [];
       const cameFrom = new Map();
       const gScore = new Map();
 
+      const startKey = cellKey(start);
       gScore.set(startKey, 0);
       const startNode = { cell: start, key: startKey, f: heuristic(start, goal) };
       open.set(startKey, startNode);
@@ -573,14 +598,16 @@
             return;
           }
           const neighborKey = cellKey(neighbor);
-          if (extraBlocked.has(neighborKey)) {
+          if (dynamicBlockers && dynamicBlockers.has(neighborKey) && neighborKey !== goalKey) {
             return;
           }
           if (blockedCells.has(neighborKey) && neighborKey !== goalKey) {
             return;
           }
-          const tentativeG = (gScore.get(current.key) || Infinity) + 1;
-          if (tentativeG >= (gScore.get(neighborKey) || Infinity)) {
+          const currentG = gScore.has(current.key) ? gScore.get(current.key) : Infinity;
+          const tentativeG = currentG + 1;
+          const neighborBest = gScore.has(neighborKey) ? gScore.get(neighborKey) : Infinity;
+          if (tentativeG >= neighborBest) {
             return;
           }
           cameFrom.set(neighborKey, current.key);
@@ -831,6 +858,23 @@
         tctx.fillRect(x, (x % 2 === 0 ? 3 : 1), 3, 1);
       }
       return ctx.createPattern(tile, 'repeat');
+    }
+
+    function getMcsPatternForFloorsBuilt(floorsBuilt) {
+      const paletteIndex = ((floorsBuilt % MCS_FLOOR_PALETTES.length) + MCS_FLOOR_PALETTES.length) % MCS_FLOOR_PALETTES.length;
+      const palette = MCS_FLOOR_PALETTES[paletteIndex] || MCS_FLOOR_PALETTES[0];
+      return createStripedPattern(palette.primary, palette.secondary, palette.shadow);
+    }
+
+    function refreshMcsZoneTexture() {
+      const info = zoneDirectory['MCS Construction'];
+      if (!info || !state || !state.floor) {
+        return;
+      }
+      const builtFloors = Math.max(0, state.floor.n - 1);
+      const pattern = getMcsPatternForFloorsBuilt(builtFloors);
+      info.zone.color = pattern;
+      textures.mcs = pattern;
     }
 
     function generateZones() {
@@ -1262,6 +1306,8 @@
         pathGoal: null,
         pathNeedsRecalc: false,
         pathReplanTimer: 0,
+        pathBlocked: false,
+        pathFailureCooldown: 0,
         jumping: false,
         jumpTime: 0,
         jumpDuration: 0.45,
@@ -1326,6 +1372,9 @@
       const scaledDt = dt * state.time.speed;
       workers.forEach(worker => {
         worker.pathReplanTimer += scaledDt;
+        if (worker.pathFailureCooldown > 0) {
+          worker.pathFailureCooldown = Math.max(0, worker.pathFailureCooldown - scaledDt);
+        }
         if (worker.target || (worker.path && worker.path.length > 0)) {
           if (worker.pathReplanTimer >= PATH_REPLAN_INTERVAL) {
             worker.pathNeedsRecalc = true;
@@ -1584,6 +1633,7 @@
       state.floor.need = woodNeeded(state.floor.n);
       state.floor.buildTime = buildTimeFor(state.floor.n);
       state.stock.wood = Math.min(state.stock.wood, state.floor.need);
+      refreshMcsZoneTexture();
       statusEl.textContent = `Floor ${finished} complete! Preparing materials for floor ${state.floor.n}.`;
       showBubble(`Floor ${finished} complete!`);
     }
@@ -1683,27 +1733,73 @@
 
     function ensureWorkerPath(worker, target) {
       if (!target) {
-        return;
+        worker.path = null;
+        worker.pathIndex = 0;
+        worker.pathGoal = null;
+        worker.pathBlocked = false;
+        worker.pathFailureCooldown = 0;
+        return false;
       }
+
       const goalCell = pointToCell(target);
       const goalKey = cellKey(goalCell);
-      if (!worker.path || worker.pathNeedsRecalc || worker.pathGoal !== goalKey) {
-        const startCell = pointToCell(workerCenter(worker));
-        const pathCells = findPath(startCell, goalCell, worker);
+      const currentCell = pointToCell(workerCenter(worker));
+
+      if (cellsEqual(currentCell, goalCell)) {
+        worker.path = null;
+        worker.pathIndex = 0;
+        worker.pathGoal = goalKey;
+        worker.pathNeedsRecalc = false;
+        worker.pathBlocked = false;
+        worker.pathFailureCooldown = 0;
+        return true;
+      }
+
+      const hasPathArray = Array.isArray(worker.path);
+      const hasActivePath = hasPathArray && worker.pathIndex < worker.path.length;
+      const needsNewPath =
+        worker.pathNeedsRecalc ||
+        worker.pathGoal !== goalKey ||
+        (!hasActivePath && !hasPathArray);
+
+      if (needsNewPath) {
+        if (
+          worker.pathBlocked &&
+          worker.pathFailureCooldown > 0 &&
+          !worker.pathNeedsRecalc &&
+          worker.pathGoal === goalKey
+        ) {
+          return false;
+        }
+
+        const pathCells = findPath(currentCell, goalCell, worker);
+
         if (pathCells && pathCells.length > 0) {
-          if (cellsEqual(pathCells[0], startCell)) {
+          if (cellsEqual(pathCells[0], currentCell)) {
             pathCells.shift();
           }
           worker.path = pathCells.map(cellToCenter);
           worker.pathIndex = 0;
+          worker.pathBlocked = false;
+          worker.pathFailureCooldown = 0;
         } else {
           worker.path = null;
           worker.pathIndex = 0;
+          worker.pathBlocked = true;
+          worker.pathFailureCooldown = PATH_FAILURE_RETRY;
+          worker.pathGoal = goalKey;
+          worker.pathNeedsRecalc = false;
+          worker.pathReplanTimer = 0;
+          return false;
         }
+
         worker.pathGoal = goalKey;
         worker.pathNeedsRecalc = false;
         worker.pathReplanTimer = 0;
+        return true;
       }
+
+      return true;
     }
 
     function setWorkerDestination(worker, target) {
@@ -1714,12 +1810,16 @@
         worker.pathGoal = null;
         worker.pathNeedsRecalc = false;
         worker.pathReplanTimer = 0;
+        worker.pathBlocked = false;
+        worker.pathFailureCooldown = 0;
         return;
       }
       worker.target = target;
       worker.pathNeedsRecalc = true;
       worker.pathGoal = null;
       worker.pathReplanTimer = 0;
+      worker.pathBlocked = false;
+      worker.pathFailureCooldown = 0;
     }
 
     function moveWorkerToward(worker, target, speed, dt) {
@@ -1727,7 +1827,10 @@
         return false;
       }
 
-      ensureWorkerPath(worker, target);
+      const pathReady = ensureWorkerPath(worker, target);
+      if (!pathReady) {
+        return false;
+      }
 
       if (worker.path && worker.pathIndex < worker.path.length) {
         const waypoint = worker.path[worker.pathIndex];
@@ -1746,6 +1849,8 @@
         worker.pathGoal = null;
         worker.pathNeedsRecalc = false;
         worker.pathReplanTimer = 0;
+        worker.pathBlocked = false;
+        worker.pathFailureCooldown = 0;
         return true;
       }
 
