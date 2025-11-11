@@ -557,12 +557,21 @@
         return null;
       }
 
-      const extraBlocked = computeDynamicBlockers(worker, goalKey);
+      const dynamicBlockers = computeDynamicBlockers(worker, goalKey);
+      let path = findPathWithBlockers(start, goal, goalKey, dynamicBlockers);
+      if (!path && dynamicBlockers.size > 0) {
+        path = findPathWithBlockers(start, goal, goalKey, null);
+      }
+      return path;
+    }
+
+    function findPathWithBlockers(start, goal, goalKey, dynamicBlockers) {
       const open = new Map();
       const openList = [];
       const cameFrom = new Map();
       const gScore = new Map();
 
+      const startKey = cellKey(start);
       gScore.set(startKey, 0);
       const startNode = { cell: start, key: startKey, f: heuristic(start, goal) };
       open.set(startKey, startNode);
@@ -589,14 +598,16 @@
             return;
           }
           const neighborKey = cellKey(neighbor);
-          if (extraBlocked.has(neighborKey)) {
+          if (dynamicBlockers && dynamicBlockers.has(neighborKey) && neighborKey !== goalKey) {
             return;
           }
           if (blockedCells.has(neighborKey) && neighborKey !== goalKey) {
             return;
           }
-          const tentativeG = (gScore.get(current.key) || Infinity) + 1;
-          if (tentativeG >= (gScore.get(neighborKey) || Infinity)) {
+          const currentG = gScore.has(current.key) ? gScore.get(current.key) : Infinity;
+          const tentativeG = currentG + 1;
+          const neighborBest = gScore.has(neighborKey) ? gScore.get(neighborKey) : Infinity;
+          if (tentativeG >= neighborBest) {
             return;
           }
           cameFrom.set(neighborKey, current.key);
