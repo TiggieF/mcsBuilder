@@ -7,7 +7,7 @@ constructs. All CSS and JavaScript are inline so the submission can open offline
 external dependencies.
 
 ## What's included
-- `mcsBuilder_final.html` — playable build with inline assets, metadata, and comments.
+- `mcsBuilder_final.html` — playable build with inline assets, metadata, and comments that preserves the Stage 04 UI + FSM layout.
 - Worker finite state machines for the Builder and Delivery specialists.
 - Canvas renderer that visualizes the growing tower and worker movements.
 - Accessibility improvements such as high-contrast mode, semantic controls, and live
