@@ -1033,26 +1033,26 @@ function createWorker(id, role, name, cell, idleColor, activeColor, accentColor)
 
 // ===== Player controls =====
 function handleMovement(dt) {
-  let vx = 0;
-  let vy = 0;
-  if (keys['KeyW']) vy -= 1;
-  if (keys['KeyS']) vy += 1;
-  if (keys['KeyA']) vx -= 1;
-  if (keys['KeyD']) vx += 1;
+  let playerHorizontalInput = 0;
+  let playerVerticalInput = 0;
+  if (keys['KeyW']) playerVerticalInput -= 1;
+  if (keys['KeyS']) playerVerticalInput += 1;
+  if (keys['KeyA']) playerHorizontalInput -= 1;
+  if (keys['KeyD']) playerHorizontalInput += 1;
 
-  if (vx !== 0 && vy !== 0) {
-    const inv = Math.SQRT1_2;
-    vx *= inv;
-    vy *= inv;
+  if (playerHorizontalInput !== 0 && playerVerticalInput !== 0) {
+    const diagonalNormalization = Math.SQRT1_2;
+    playerHorizontalInput *= diagonalNormalization;
+    playerVerticalInput *= diagonalNormalization;
   }
 
   const distance = player.speed * dt * state.time.speed;
 
   const collisionRects = getCollisionRects();
 
-  if (vx !== 0) {
+  if (playerHorizontalInput !== 0) {
     const nextRect = {
-      x: player.x + vx * distance,
+      x: player.x + playerHorizontalInput * distance,
       y: player.y,
       width: player.width,
       height: player.height
@@ -1062,10 +1062,10 @@ function handleMovement(dt) {
     }
   }
 
-  if (vy !== 0) {
+  if (playerVerticalInput !== 0) {
     const nextRect = {
       x: player.x,
-      y: player.y + vy * distance,
+      y: player.y + playerVerticalInput * distance,
       width: player.width,
       height: player.height
     };
