@@ -2,7 +2,7 @@
 
 ## Goals
 Create a single HTML file runnable in browser with:
-- 30×30 grid
+- 38×20 grid
 - Player movement (WASD)
 - Space key interaction placeholder
 - Static UI panel + HUD

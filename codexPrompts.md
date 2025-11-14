@@ -97,7 +97,7 @@ Keep everything inside the same HTML.
 - Finalized HTML (still one file)
 - Properly working movement + FSM loop
 
-# STAGE 05 — IMPLEMENT PROMPT
+<!-- # STAGE 05 — IMPLEMENT PROMPT
 
 ## Goal
 Add **analytics, win condition, and polish** to the existing single HTML.
@@ -123,7 +123,7 @@ Add **analytics, win condition, and polish** to the existing single HTML.
 
 ## Deliverables
 - One polished HTML (final look & feel)
-- Game fully playable from start to finish.
+- Game fully playable from start to finish. -->
 
 # STAGE 06 — IMPLEMENT PROMPT
 
@@ -134,13 +134,13 @@ Finalize the project for submission as a **single self-contained HTML file**.
 1. **Cleanup**
    - Remove debug overlays and console logs.
    - Inline all CSS and JS.
+   - clean the code and remove all the repetitive code. make it super efficient but preserve all the current details.
+   - make sure there is not complicated code that's i cant code, a undergraduate cs student and make sure the code looks like human written like not shorting a if statement etc similar ones. and add comments 
 2. **Metadata**
    - Title, author (Tiger Fang), and course info in `<head>`.
 3. **Submission Packaging**
    - Ensure game runs offline (no external dependencies).
    - Embed all logic inline — no imports or modules.
-4. **Test Cases**
-   - Start game → Build 10 floors → Show completion screen with total time.
 
 ## Deliverables
 - `mcsBuilder_final.html` (single runnable file)
