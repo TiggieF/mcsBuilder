@@ -42,7 +42,10 @@
     </div>
   </div>
   <div class="main-wrapper">
-    <canvas id="gameCanvas" width="1140" height="600" aria-label="mcsBuilder playfield"></canvas>
+    <div class="grid-wrapper" aria-label="mcsBuilder playfield">
+      <div id="grid" class="grid" role="img" aria-label="Campus grid"></div>
+      <div id="entityLayer" class="entity-layer" aria-hidden="true"></div>
+    </div>
     <aside class="panel" aria-label="control panel">
       <h2>Control Panel</h2>
       <button id="pauseBtn" type="button">Pause</button>
