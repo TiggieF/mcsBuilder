@@ -1,12 +1,9 @@
 'use strict';
 
-// ===== Canvas + drawing context =====
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
-ctx.imageSmoothingEnabled = false;
-
 // ===== Core tuning constants =====
 const grid = { cols: 38, rows: 20, cell: 30 };
+const GRID_PIXEL_WIDTH = grid.cols * grid.cell;
+const GRID_PIXEL_HEIGHT = grid.rows * grid.cell;
 const FPS = 30;
 const frameDuration = 1000 / FPS;
 const MAX_FLOORS = 10;
@@ -33,6 +30,29 @@ const BUILD_PROGRESS_SLOWDOWN = 1.5;
 const PLAYER_INTERACT_COOLDOWN = 0.35;
 const EDGE_MARGIN = 1;
 let fsmLogEl = null;
+
+const documentElement = document.documentElement;
+if (documentElement) {
+  documentElement.style.setProperty('--grid-cols', grid.cols);
+  documentElement.style.setProperty('--grid-rows', grid.rows);
+  documentElement.style.setProperty('--cell-size', `${grid.cell}px`);
+}
+
+const playfieldEl = document.querySelector('.grid-wrapper');
+const gridEl = document.getElementById('grid');
+const entityLayer = document.getElementById('entityLayer');
+
+if (playfieldEl) {
+  playfieldEl.style.width = `${GRID_PIXEL_WIDTH}px`;
+  playfieldEl.style.height = `${GRID_PIXEL_HEIGHT}px`;
+}
+
+const tileElements = new Map();
+const mcsTileEls = [];
+let zoneLabelsBuilt = false;
+let floorBoardEl = null;
+let floorBoardSegments = [];
+let playerDom = null;
 
 // ===== Simple worker state machines =====
 const WorkerFSMConfig = {
@@ -75,9 +95,6 @@ function createStateMachine(role) {
   };
 }
 
-canvas.width = grid.cols * grid.cell;
-canvas.height = grid.rows * grid.cell;
-
 // ===== Palette + texture references =====
 const MCS_FLOOR_PALETTES = [
   { primary: '#303a65', secondary: '#47578c', shadow: '#1d233c' },
@@ -88,20 +105,44 @@ const MCS_FLOOR_PALETTES = [
   { primary: '#2b5d5b', secondary: '#3f8b87', shadow: '#162e2c' }
 ];
 
-// Cache the generated canvas patterns to keep drawing inexpensive
-const textures = {
-  grass: createGrassPattern('#1f3a1c', '#2f5327', '#3f6d31'),
-  mcs: createStripedPattern(
-    MCS_FLOOR_PALETTES[0].primary,
-    MCS_FLOOR_PALETTES[0].secondary,
-    MCS_FLOOR_PALETTES[0].shadow
-  ),
-  building: createBrickPattern('#744d2b', '#4b321b', '#301f10'),
-  cafe: createBrickPattern('#223937', '#1b2c2a', '#12201e'),
-  dorm: createStripedPattern('#3e2b58', '#5b3f7a', '#211334'),
-  rock: createRockPattern('#505667', '#292c36', '#8f95a6'),
-  pond: createWaterPattern('#1c3558', '#2d5a8c', '#13213a')
-};
+const ZONE_CONFIGS = [
+  {
+    name: 'MCS Construction',
+    description: 'Future site of the Computer Science building.',
+    tilesWide: 5,
+    tilesHigh: 5,
+    slug: 'mcs',
+    hint: 'SPACE',
+    padding: grid.cell
+  },
+  {
+    name: 'Wood House',
+    description: 'Stockpile for framing lumber.',
+    tilesWide: 2,
+    tilesHigh: 2,
+    slug: 'wood',
+    hint: 'SPACE',
+    padding: grid.cell * 0.75
+  },
+  {
+    name: 'Starbucks',
+    description: 'Quick caffeine stop for the crew.',
+    tilesWide: 2,
+    tilesHigh: 2,
+    slug: 'cafe',
+    hint: 'SPACE',
+    padding: grid.cell * 0.75
+  },
+  {
+    name: 'Dorm Beds',
+    description: 'Where exhausted workers rest up.',
+    tilesWide: 2,
+    tilesHigh: 2,
+    slug: 'dorm',
+    hint: 'SPACE',
+    padding: grid.cell * 0.75
+  }
+];
 
 // ===== Utility helpers =====
 function woodNeeded(floor) {
@@ -133,12 +174,11 @@ if (blockedCells.has(cellKey(playerCell))) {
 const spawnCell = { ...playerCell };
 const rockTiles = buildRockTiles(rocks);
 const solidRects = [...zones, ...rockTiles];
+const tileMatrix = createTileMatrix(zones, rocks);
 
 let state = createInitialState(spawnCell, blockedCells);
 let player = state.player;
 let workers = state.workers;
-
-refreshMcsZoneTexture();
 
 const keys = {};
 let isPaused = false;
@@ -170,6 +210,12 @@ const workerCards = Array.from(document.querySelectorAll('.worker-card'));
 fsmLogEl = document.getElementById('fsmLog');
 bubble.style.display = 'none';
 updateSpeedLabel();
+
+buildGridDom(tileMatrix);
+createZoneLabels();
+createFloorProgressBoard();
+rebuildEntityElements();
+refreshMcsZoneTexture();
 
 // ----- Geometry helpers -----
 function rectsOverlap(a, b) {
@@ -469,174 +515,291 @@ function updateHUD() {
 
   const timeDisplay = gameComplete ? finishTime : state.time.elapsed;
   hudTime.textContent = formatTime(timeDisplay);
+  updateFloorProgressBoard();
 }
 
-function createGrassPattern(primary, secondary, accent) {
-  const tile = document.createElement('canvas');
-  tile.width = 16;
-  tile.height = 16;
-  const tctx = tile.getContext('2d');
-  tctx.imageSmoothingEnabled = false;
-  tctx.fillStyle = primary;
-  tctx.fillRect(0, 0, tile.width, tile.height);
-  tctx.fillStyle = secondary;
-  for (let y = 0; y < tile.height; y += 4) {
-    for (let x = (y / 4) % 2 === 0 ? 0 : 2; x < tile.width; x += 4) {
-      tctx.fillRect(x, y, 2, 2);
+function updateFloorProgressBoard() {
+  if (!floorBoardEl || !state || !state.progress) {
+    return;
+  }
+  const floorsBuilt = state.progress.floorsBuilt;
+  const totalFloors = state.progress.totalFloors;
+  floorBoardSegments.forEach((segment, index) => {
+    segment.classList.remove('complete', 'active', 'pending');
+    if (index < floorsBuilt) {
+      segment.classList.add('complete');
+      segment.style.removeProperty('--segment-progress');
+    } else if (index === floorsBuilt && floorsBuilt < totalFloors) {
+      segment.classList.add('active');
+      const progressPercent = Math.round(Math.min(1, state.floor.progress) * 100);
+      segment.style.setProperty('--segment-progress', `${progressPercent}%`);
+    } else {
+      segment.classList.add('pending');
+      segment.style.removeProperty('--segment-progress');
+    }
+  });
+  const metaCurrent = floorBoardEl.querySelector('.current');
+  const metaPercent = floorBoardEl.querySelector('.percent');
+  if (metaCurrent) {
+    const currentFloor = Math.min(state.floor.n, totalFloors);
+    metaCurrent.textContent = `Floor ${currentFloor} / ${totalFloors}`;
+  }
+  if (metaPercent) {
+    const overall = Math.min(1, (floorsBuilt + state.floor.progress) / totalFloors);
+    metaPercent.textContent = `${Math.round(overall * 100)}% Complete`;
+  }
+}
+
+function createTileMatrix(zones, rocks) {
+  const matrix = Array.from({ length: grid.rows }, () => (
+    Array.from({ length: grid.cols }, () => ({ zone: null, rock: null }))
+  ));
+
+  zones.forEach(zone => {
+    const startCol = Math.floor(zone.x / grid.cell);
+    const startRow = Math.floor(zone.y / grid.cell);
+    const cols = Math.floor(zone.width / grid.cell);
+    const rows = Math.floor(zone.height / grid.cell);
+    for (let col = 0; col < cols; col += 1) {
+      for (let row = 0; row < rows; row += 1) {
+        const gridCol = startCol + col;
+        const gridRow = startRow + row;
+        if (!withinGrid(gridCol, gridRow)) {
+          continue;
+        }
+        matrix[gridRow][gridCol].zone = zone;
+      }
+    }
+  });
+
+  rocks.forEach(rock => {
+    rock.cells.forEach(cell => {
+      if (!withinGrid(cell.col, cell.row)) {
+        return;
+      }
+      matrix[cell.row][cell.col].rock = rock;
+    });
+  });
+
+  return matrix;
+}
+
+function getTileClass(tile) {
+  if (tile.rock) {
+    return tile.rock.kind === 'pond' || tile.rock.kind === 'fountain'
+      ? 'tile-pond'
+      : 'tile-rock';
+  }
+  if (tile.zone) {
+    const slug = tile.zone.slug || 'mcs';
+    return `tile-zone-${slug}`;
+  }
+  return 'tile-grass';
+}
+
+function buildGridDom(matrix) {
+  if (!gridEl || !matrix) {
+    return;
+  }
+  gridEl.innerHTML = '';
+  tileElements.clear();
+  mcsTileEls.length = 0;
+  const fragment = document.createDocumentFragment();
+  for (let row = 0; row < grid.rows; row += 1) {
+    for (let col = 0; col < grid.cols; col += 1) {
+      const data = matrix[row][col];
+      const tile = document.createElement('div');
+      tile.className = `tile ${getTileClass(data)}`;
+      tile.dataset.col = col;
+      tile.dataset.row = row;
+      fragment.appendChild(tile);
+      tileElements.set(cellKey({ col, row }), tile);
+      if (data.zone && data.zone.slug === 'mcs') {
+        mcsTileEls.push(tile);
+      }
     }
   }
-  tctx.fillStyle = accent;
-  const accentPixels = [
-    [1, 1], [5, 3], [9, 1], [13, 5],
-    [3, 9], [11, 11], [7, 13], [15, 15]
-  ];
-  accentPixels.forEach(([x, y]) => {
-    tctx.fillRect(x % tile.width, y % tile.height, 2, 2);
-  });
-  return ctx.createPattern(tile, 'repeat');
+  gridEl.appendChild(fragment);
 }
 
-function createStripedPattern(primary, secondary, shadow) {
-  const tile = document.createElement('canvas');
-  tile.width = 16;
-  tile.height = 16;
-  const tctx = tile.getContext('2d');
-  tctx.imageSmoothingEnabled = false;
-  tctx.fillStyle = shadow;
-  tctx.fillRect(0, 0, tile.width, tile.height);
-  tctx.fillStyle = primary;
-  for (let x = 0; x < tile.width; x += 4) {
-    tctx.fillRect(x, 0, 3, tile.height);
+function createZoneLabels() {
+  if (!entityLayer || zoneLabelsBuilt) {
+    return;
   }
-  tctx.fillStyle = secondary;
-  for (let y = 0; y < tile.height; y += 8) {
-    tctx.fillRect(0, y, tile.width, 2);
-  }
-  return ctx.createPattern(tile, 'repeat');
-}
-
-function createBrickPattern(base, mortar, shadow) {
-  const tile = document.createElement('canvas');
-  tile.width = 16;
-  tile.height = 16;
-  const tctx = tile.getContext('2d');
-  tctx.imageSmoothingEnabled = false;
-  tctx.fillStyle = shadow;
-  tctx.fillRect(0, 0, tile.width, tile.height);
-  tctx.fillStyle = mortar;
-  tctx.fillRect(1, 1, tile.width - 2, tile.height - 2);
-  tctx.fillStyle = base;
-  for (let row = 0; row < tile.height; row += 6) {
-    const offset = (row / 6) % 2 === 0 ? 0 : 4;
-    for (let col = offset; col < tile.width; col += 8) {
-      tctx.fillRect(col, row, 6, 4);
+  zoneLabelsBuilt = true;
+  zones.forEach(zone => {
+    const label = document.createElement('div');
+    label.className = 'zone-label';
+    label.style.left = `${zone.x + zone.width / 2}px`;
+    label.style.top = `${zone.y + 14}px`;
+    const title = document.createElement('div');
+    title.textContent = zone.name;
+    label.appendChild(title);
+    if (zone.hint) {
+      const hint = document.createElement('span');
+      hint.className = 'hint';
+      hint.textContent = zone.hint;
+      label.appendChild(hint);
     }
-  }
-  tctx.fillStyle = shadow;
-  for (let y = 0; y < tile.height; y += 4) {
-    tctx.fillRect(0, y, tile.width, 1);
-  }
-  return ctx.createPattern(tile, 'repeat');
-}
-
-function createRockPattern(primary, shadow, highlight) {
-  const tile = document.createElement('canvas');
-  tile.width = 16;
-  tile.height = 16;
-  const tctx = tile.getContext('2d');
-  tctx.imageSmoothingEnabled = false;
-  tctx.fillStyle = shadow;
-  tctx.fillRect(0, 0, tile.width, tile.height);
-  tctx.fillStyle = primary;
-  const blocks = [
-    [2, 2, 4, 4], [8, 1, 5, 5], [1, 9, 6, 5]
-  ];
-  blocks.forEach(([x, y, w, h]) => {
-    tctx.fillRect(x, y, w, h);
+    entityLayer.appendChild(label);
   });
-  tctx.fillStyle = highlight;
-  [[3, 3], [9, 3], [5, 11]].forEach(([x, y]) => {
-    tctx.fillRect(x, y, 2, 2);
+}
+
+function createFloorProgressBoard() {
+  if (!entityLayer || floorBoardEl) {
+    return;
+  }
+  const info = zoneDirectory['MCS Construction'];
+  if (!info) {
+    return;
+  }
+  const board = document.createElement('div');
+  board.className = 'floor-board';
+  const title = document.createElement('div');
+  title.className = 'title';
+  title.textContent = 'MCS Progress';
+  board.appendChild(title);
+  const segments = document.createElement('div');
+  segments.className = 'segments';
+  board.appendChild(segments);
+  floorBoardSegments = [];
+  for (let i = 0; i < MAX_FLOORS; i += 1) {
+    const segment = document.createElement('div');
+    segment.className = 'segment pending';
+    segments.appendChild(segment);
+    floorBoardSegments.push(segment);
+  }
+  const meta = document.createElement('div');
+  meta.className = 'meta';
+  const current = document.createElement('div');
+  current.className = 'current';
+  const percent = document.createElement('div');
+  percent.className = 'percent';
+  meta.appendChild(current);
+  meta.appendChild(percent);
+  board.appendChild(meta);
+  board.style.left = `${info.zone.x + info.zone.width / 2}px`;
+  board.style.top = `${Math.max(0, info.zone.y - 10)}px`;
+  entityLayer.appendChild(board);
+  floorBoardEl = board;
+  updateFloorProgressBoard();
+}
+
+function rebuildEntityElements() {
+  if (!entityLayer) {
+    return;
+  }
+  entityLayer.querySelectorAll('.entity').forEach(node => node.remove());
+  playerDom = createPlayerElement();
+  if (playerDom && playerDom.root) {
+    entityLayer.appendChild(playerDom.root);
+  }
+  workers.forEach(worker => {
+    worker.dom = createWorkerElement(worker);
+    if (worker.dom && worker.dom.root) {
+      entityLayer.appendChild(worker.dom.root);
+    }
   });
-  return ctx.createPattern(tile, 'repeat');
+  updateEntityLayer();
 }
 
-function createWaterPattern(base, ripple, highlight) {
-  const tile = document.createElement('canvas');
-  tile.width = 16;
-  tile.height = 16;
-  const tctx = tile.getContext('2d');
-  tctx.imageSmoothingEnabled = false;
-  tctx.fillStyle = base;
-  tctx.fillRect(0, 0, tile.width, tile.height);
-  tctx.fillStyle = ripple;
-  for (let y = 0; y < tile.height; y += 4) {
-    tctx.fillRect(0, y, tile.width, 2);
+function createPlayerElement() {
+  if (!entityLayer) {
+    return null;
   }
-  tctx.fillStyle = highlight;
-  for (let x = 0; x < tile.width; x += 6) {
-    tctx.fillRect(x, (x % 2 === 0 ? 3 : 1), 3, 1);
-  }
-  return ctx.createPattern(tile, 'repeat');
+  const root = document.createElement('div');
+  root.className = 'entity player';
+  root.style.width = `${player.width}px`;
+  root.style.height = `${player.height}px`;
+  const body = document.createElement('div');
+  body.className = 'body';
+  root.appendChild(body);
+  const label = document.createElement('div');
+  label.className = 'label';
+  label.textContent = 'Player';
+  root.appendChild(label);
+  return { root, body, label };
 }
 
-function getMcsPatternForFloorsBuilt(floorsBuilt) {
-  const paletteIndex = ((floorsBuilt % MCS_FLOOR_PALETTES.length) + MCS_FLOOR_PALETTES.length) % MCS_FLOOR_PALETTES.length;
-  const palette = MCS_FLOOR_PALETTES[paletteIndex] || MCS_FLOOR_PALETTES[0];
-  return createStripedPattern(palette.primary, palette.secondary, palette.shadow);
+function createWorkerElement(worker) {
+  if (!entityLayer) {
+    return null;
+  }
+  const root = document.createElement('div');
+  root.className = `entity worker ${worker.role}`;
+  root.style.width = `${worker.width}px`;
+  root.style.height = `${worker.height}px`;
+  const body = document.createElement('div');
+  body.className = 'body';
+  root.appendChild(body);
+  const label = document.createElement('div');
+  label.className = 'label';
+  const nameEl = document.createElement('span');
+  nameEl.className = 'name';
+  nameEl.textContent = `${worker.name} · L${worker.level}`;
+  const stateEl = document.createElement('span');
+  stateEl.className = 'state';
+  label.appendChild(nameEl);
+  label.appendChild(stateEl);
+  root.appendChild(label);
+  return { root, body, label, nameEl, stateEl };
+}
+
+function setEntityPosition(element, x, y) {
+  if (!element) {
+    return;
+  }
+  element.style.transform = `translate(${x}px, ${y}px)`;
+}
+
+function updateEntityLayer() {
+  if (playerDom && playerDom.root) {
+    setEntityPosition(playerDom.root, player.x, player.y);
+    const carryingCoffee = player.item === 'coffee';
+    playerDom.label.textContent = carryingCoffee ? 'Player · Coffee' : 'Player';
+    playerDom.root.classList.toggle('has-coffee', carryingCoffee);
+  }
+  workers.forEach(worker => {
+    const dom = worker.dom;
+    if (!dom || !dom.root) {
+      return;
+    }
+    dom.root.style.display = worker.visible ? 'flex' : 'none';
+    setEntityPosition(dom.root, worker.x, worker.y - worker.jumpOffset);
+    dom.body.style.background = worker.order === 'idle' ? worker.colorIdle : worker.colorActive;
+    dom.body.style.setProperty('--entity-accent', worker.accentColor);
+    dom.root.classList.toggle('active', worker.order !== 'idle');
+    dom.root.classList.toggle('glow', worker.role === 'delivery' && worker.levelGlow > 0);
+    if (dom.nameEl) {
+      dom.nameEl.textContent = `${worker.name} · L${worker.level}`;
+    }
+    if (dom.stateEl) {
+      const max = getWorkerMaxStamina(worker);
+      const staminaCap = Number.isInteger(max) ? max : max.toFixed(1);
+      dom.stateEl.textContent = `${formatStateLabel(worker.stateMachine.state)} · ${worker.stamina.toFixed(1)}/${staminaCap}`;
+    }
+  });
 }
 
 function refreshMcsZoneTexture() {
-  const info = zoneDirectory['MCS Construction'];
-  if (!info || !state || !state.floor) {
+  if (!state || !state.progress) {
     return;
   }
-  const builtFloors = Math.max(0, state.progress ? state.progress.floorsBuilt : state.floor.n - 1);
-  const pattern = getMcsPatternForFloorsBuilt(builtFloors);
-  info.zone.color = pattern;
-  textures.mcs = pattern;
+  const builtFloors = Math.max(0, state.progress.floorsBuilt);
+  const paletteIndex = ((builtFloors % MCS_FLOOR_PALETTES.length) + MCS_FLOOR_PALETTES.length) % MCS_FLOOR_PALETTES.length;
+  const palette = MCS_FLOOR_PALETTES[paletteIndex] || MCS_FLOOR_PALETTES[0];
+  mcsTileEls.forEach(tile => {
+    tile.style.setProperty('--mcs-primary', palette.primary);
+    tile.style.setProperty('--mcs-secondary', palette.secondary);
+    tile.style.setProperty('--mcs-shadow', palette.shadow);
+  });
 }
 
 function generateZones() {
   const placed = [];
   const zones = [];
 
-  const configs = [
-    {
-      name: 'MCS Construction',
-      description: 'Future site of the Computer Science building.',
-      tilesWide: 5,
-      tilesHigh: 5,
-      color: textures.mcs,
-      padding: grid.cell
-    },
-    {
-      name: 'Wood House',
-      description: 'Stockpile for framing lumber.',
-      tilesWide: 2,
-      tilesHigh: 2,
-      color: textures.building,
-      padding: grid.cell * 0.75
-    },
-    {
-      name: 'Starbucks',
-      description: 'Quick caffeine stop for the crew.',
-      tilesWide: 2,
-      tilesHigh: 2,
-      color: textures.cafe,
-      padding: grid.cell * 0.75
-    },
-    {
-      name: 'Dorm Beds',
-      description: 'Where exhausted workers rest up.',
-      tilesWide: 2,
-      tilesHigh: 2,
-      color: textures.dorm,
-      padding: grid.cell * 0.75
-    }
-  ];
-
-  configs.forEach(config => {
+  ZONE_CONFIGS.forEach(config => {
     const zone = placeRandomZone(config, placed, config.padding);
     zones.push(zone);
     placed.push(zone);
@@ -693,7 +856,8 @@ function placeRandomZone(config, placed, padding) {
       y: row * grid.cell,
       width,
       height,
-      color: config.color,
+      slug: config.slug,
+      hint: config.hint || '',
       solid: true
     };
 
@@ -1091,8 +1255,8 @@ function handleMovement(dt) {
     }
   }
 
-  player.x = clamp(player.x, 2, canvas.width - player.width - 2);
-  player.y = clamp(player.y, 2, canvas.height - player.height - 2);
+  player.x = clamp(player.x, 2, GRID_PIXEL_WIDTH - player.width - 2);
+  player.y = clamp(player.y, 2, GRID_PIXEL_HEIGHT - player.height - 2);
 }
 
 // ===== Worker brain loop =====
@@ -1451,6 +1615,7 @@ function restartGame() {
   workers = state.workers;
   state.time.speed = speedOptions[speedIndex];
   updateSpeedLabel();
+  rebuildEntityElements();
   finishTime = 0;
   gameComplete = false;
   isPaused = false;
@@ -1538,8 +1703,8 @@ function moveWorker(worker, dx, dy) {
     }
   }
 
-  worker.x = clamp(worker.x, 2, canvas.width - worker.width - 2);
-  worker.y = clamp(worker.y, 2, canvas.height - worker.height - 2);
+  worker.x = clamp(worker.x, 2, GRID_PIXEL_WIDTH - worker.width - 2);
+  worker.y = clamp(worker.y, 2, GRID_PIXEL_HEIGHT - worker.height - 2);
   return moved;
 }
 
@@ -1702,238 +1867,8 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
-function drawGrid() {
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
-  ctx.lineWidth = 1;
-  for (let col = 1; col < grid.cols; col++) {
-    const x = col * grid.cell + 0.5;
-    ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, canvas.height);
-    ctx.stroke();
-  }
-  for (let row = 1; row < grid.rows; row++) {
-    const y = row * grid.cell + 0.5;
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(canvas.width, y);
-    ctx.stroke();
-  }
-}
-
-function drawRocks() {
-  rocks.forEach(rock => {
-    const pattern = rock.kind === 'pond'
-      ? textures.pond
-      : rock.kind === 'fountain'
-        ? textures.pond
-        : textures.rock;
-    rock.cells.forEach(cell => {
-      const x = cell.col * grid.cell;
-      const y = cell.row * grid.cell;
-      ctx.fillStyle = pattern;
-      ctx.fillRect(x, y, grid.cell, grid.cell);
-      ctx.strokeStyle = rock.kind === 'pond' ? '#0b2038' : '#11141d';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(x + 1, y + 1, grid.cell - 2, grid.cell - 2);
-      if (rock.kind === 'pond' || rock.kind === 'fountain') {
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.18)';
-        ctx.fillRect(x + 4, y + 4, grid.cell - 8, 3);
-      } else {
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
-        ctx.fillRect(x, y + grid.cell - 6, grid.cell, 6);
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
-        ctx.fillRect(x + 6, y + 6, 6, 2);
-      }
-    });
-  });
-}
-
-function drawZones() {
-  zones.forEach(zone => {
-    ctx.fillStyle = zone.color instanceof CanvasPattern ? zone.color : zone.color;
-    ctx.fillRect(zone.x, zone.y, zone.width, zone.height);
-
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
-    ctx.fillRect(zone.x, zone.y, zone.width, 4);
-
-    ctx.strokeStyle = '#0a0d18';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(zone.x, zone.y, zone.width, zone.height);
-    ctx.strokeStyle = 'rgba(252, 227, 138, 0.45)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(zone.x - 3, zone.y - 3, zone.width + 6, zone.height + 6);
-
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
-    ctx.fillRect(zone.x, zone.y, zone.width, 18);
-
-    ctx.fillStyle = '#f7f7fb';
-    ctx.font = '12px "Press Start 2P", "VT323", monospace';
-    ctx.textBaseline = 'top';
-    ctx.textAlign = 'center';
-    ctx.fillText(zone.name, zone.x + zone.width / 2, zone.y + 2);
-
-    ctx.font = '10px "Press Start 2P", "VT323", monospace';
-    ctx.fillStyle = 'rgba(252, 227, 138, 0.85)';
-    ctx.fillText('SPACE', zone.x + zone.width / 2, zone.y + zone.height - 18);
-
-    if (zone.name === 'MCS Construction') {
-      drawFloorProgress(zone);
-    }
-  });
-  ctx.textAlign = 'left';
-}
-
-function drawFloorProgress(zone) {
-  if (!state || !state.progress) {
-    return;
-  }
-  const totalFloors = state.progress.totalFloors;
-  const floorsBuilt = Math.min(state.progress.floorsBuilt, totalFloors);
-  const currentFloorProgress = Math.min(1, state.floor.progress);
-  const overallProgress = Math.min(1, (floorsBuilt + currentFloorProgress) / totalFloors);
-
-  const padding = 10;
-  const segmentSpacing = 4;
-  const barWidth = zone.width - padding * 2;
-  const segmentWidth = (barWidth - (totalFloors - 1) * segmentSpacing) / totalFloors;
-  const barX = zone.x + padding;
-  const barY = Math.max(16, zone.y - 30);
-
-  ctx.save();
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.font = '10px "Press Start 2P", "VT323", monospace';
-
-  ctx.fillStyle = 'rgba(6, 8, 18, 0.78)';
-  ctx.fillRect(barX - 12, barY - 18, barWidth + 24, 36);
-  ctx.strokeStyle = 'rgba(252, 227, 138, 0.45)';
-  ctx.lineWidth = 1.5;
-  ctx.strokeRect(barX - 12, barY - 18, barWidth + 24, 36);
-
-  for (let i = 0; i < totalFloors; i += 1) {
-    const segmentX = barX + i * (segmentWidth + segmentSpacing);
-    const completion = i < floorsBuilt ? 1 : i === floorsBuilt ? currentFloorProgress : 0;
-    ctx.fillStyle = 'rgba(32, 36, 56, 0.9)';
-    ctx.fillRect(segmentX, barY - 6, segmentWidth, 12);
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
-    ctx.strokeRect(segmentX, barY - 6, segmentWidth, 12);
-    if (completion > 0) {
-      const gradient = ctx.createLinearGradient(segmentX, barY - 6, segmentX + segmentWidth, barY + 6);
-      gradient.addColorStop(0, '#67f3a2');
-      gradient.addColorStop(1, '#2db4ff');
-      ctx.fillStyle = gradient;
-      ctx.fillRect(segmentX, barY - 6, segmentWidth * completion, 12);
-    }
-  }
-
-  ctx.fillStyle = '#f7f7fb';
-  ctx.fillText(`Floor ${Math.min(state.floor.n, totalFloors)} of ${totalFloors}`, barX + barWidth / 2, barY - 12);
-  ctx.fillStyle = 'rgba(252, 227, 138, 0.95)';
-  ctx.fillText(`${Math.round(overallProgress * 100)}%`, barX + barWidth / 2, barY + 10);
-  ctx.restore();
-}
-
-function drawWorkers() {
-  ctx.font = '10px "Press Start 2P", "VT323", monospace';
-  ctx.textBaseline = 'bottom';
-  workers.forEach(worker => {
-    if (!worker.visible) {
-      return;
-    }
-    const bodyY = worker.y - worker.jumpOffset;
-    ctx.fillStyle = '#00000088';
-    ctx.fillRect(worker.x - 4, bodyY + worker.height, worker.width + 8, 6);
-
-    const isIdle = worker.order === 'idle';
-    const highlight = worker.role === 'delivery' && worker.levelGlow > 0;
-    const idleColor = highlight ? '#ffe082' : worker.colorIdle;
-    const activeColor = highlight ? '#ffb300' : worker.colorActive;
-    const accentColor = highlight ? '#ffe9a6' : worker.accentColor;
-    const idleAccent = highlight ? '#e0c777' : '#5b6170';
-    const beltColor = highlight ? '#ffbfa5' : (isIdle ? '#6e7280' : '#f08080');
-    const infoBg = highlight ? 'rgba(66, 42, 12, 0.85)' : '#1d2238ee';
-    const nameColor = highlight ? '#ffe082' : '#f7f7fb';
-    const levelColor = highlight ? '#fff4c1' : '#9aa0b7';
-    const stateColor = highlight ? '#fff0a6' : (isIdle ? '#9aa0b7' : '#fce38a');
-
-    ctx.fillStyle = isIdle ? idleColor : activeColor;
-    ctx.fillRect(worker.x, bodyY, worker.width, worker.height);
-
-    ctx.fillStyle = isIdle ? idleAccent : accentColor;
-    ctx.fillRect(worker.x + 2, bodyY, worker.width - 4, 5);
-
-    ctx.fillStyle = isIdle ? '#3f4554' : '#41434f';
-    ctx.fillRect(worker.x + 4, bodyY + 4, 4, 4);
-    ctx.fillRect(worker.x + worker.width - 8, bodyY + 4, 4, 4);
-
-    ctx.fillStyle = beltColor;
-    ctx.fillRect(worker.x + 6, bodyY + worker.height - 6, worker.width - 12, 4);
-
-    ctx.fillStyle = infoBg;
-    ctx.fillRect(worker.x - 20, bodyY - 48, worker.width + 40, 42);
-
-    ctx.textAlign = 'center';
-    ctx.fillStyle = levelColor;
-    ctx.fillText(`L${worker.level}`, worker.x + worker.width / 2, bodyY - 34);
-
-    ctx.fillStyle = nameColor;
-    ctx.fillText(worker.name, worker.x + worker.width / 2, bodyY - 20);
-
-    ctx.fillStyle = stateColor;
-    const staminaText = `${worker.stamina.toFixed(1)}/${getWorkerMaxStamina(worker)}`;
-    const stateLabel = formatStateLabel(worker.stateMachine.state);
-    ctx.fillText(`${stateLabel} · ${staminaText}`, worker.x + worker.width / 2, bodyY - 6);
-  });
-  ctx.textAlign = 'left';
-}
-
-function drawPlayer() {
-  ctx.fillStyle = '#00000088';
-  ctx.fillRect(player.x - 4, player.y + player.height, player.width + 8, 6);
-
-  ctx.fillStyle = '#1d1f2f';
-  ctx.fillRect(player.x + 4, player.y + 4, player.width - 8, player.height - 8);
-
-  ctx.fillStyle = player.color;
-  ctx.fillRect(player.x, player.y, player.width, player.height - 6);
-
-  ctx.fillStyle = '#2b2e4a';
-  ctx.fillRect(player.x + 6, player.y + 4, 4, 4);
-  ctx.fillRect(player.x + player.width - 10, player.y + 4, 4, 4);
-
-  ctx.fillStyle = '#f08080';
-  ctx.fillRect(player.x + 6, player.y + player.height - 14, player.width - 12, 8);
-
-  ctx.fillStyle = '#41436a';
-  ctx.fillRect(player.x + 2, player.y + player.height - 6, player.width - 4, 6);
-
-  if (player.item === 'coffee') {
-    ctx.fillStyle = '#1d2238ee';
-    ctx.fillRect(player.x - 14, player.y - 36, player.width + 28, 26);
-    ctx.fillStyle = '#fce38a';
-    ctx.font = '12px "Press Start 2P", "VT323", monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('LATTE', player.x + player.width / 2, player.y - 23);
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'alphabetic';
-  }
-}
-
 function drawScene() {
-  if (textures.grass) {
-    ctx.fillStyle = textures.grass;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-  } else {
-    ctx.fillStyle = '#0e1320';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-  }
-  drawGrid();
-  drawRocks();
-  drawZones();
-  drawWorkers();
-  drawPlayer();
+  updateEntityLayer();
 }
 
 function update(dt) {
@@ -2306,9 +2241,9 @@ function positionBubble() {
   if (bubble.style.display === 'none') {
     return;
   }
-  const rect = canvas.getBoundingClientRect();
-  const pageX = rect.left + window.scrollX + player.x + player.width / 2;
-  const pageY = rect.top + window.scrollY + player.y - 10;
+  const baseRect = playfieldEl ? playfieldEl.getBoundingClientRect() : { left: 0, top: 0 };
+  const pageX = baseRect.left + window.scrollX + player.x + player.width / 2;
+  const pageY = baseRect.top + window.scrollY + player.y - 10;
   bubble.style.left = `${pageX}px`;
   bubble.style.top = `${pageY}px`;
 }
