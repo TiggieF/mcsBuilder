@@ -25,13 +25,24 @@ const WORKER_IDLE_SPEED = 28;
 const WORKER_APPROACH_BUFFER = 4;
 const PATH_REPLAN_INTERVAL = 1;
 const PATH_FAILURE_RETRY = 0.45;
-const WOOD_BASE = 10;
-const WOOD_PER_FLOOR = 5;
+const MATERIAL_BASE = 10;
+const MATERIAL_PER_FLOOR = 5;
 const BUILD_BASE = 5;
 const BUILD_PER_FLOOR = 5;
 const BUILD_PROGRESS_SLOWDOWN = 1.5;
 const PLAYER_INTERACT_COOLDOWN = 0.35;
 const EDGE_MARGIN = 1;
+const RED_BULL_INTERVAL = 300;
+const RED_BULL_DURATION = 60;
+const RED_BULL_PLAYER_MULT = 2;
+const RED_BULL_WORKER_MULT = 1.3;
+const RED_BULL_BUILD_MULT = 0.9;
+
+const MATERIAL_RULES = [
+  { name: 'concrete', floors: [1, 3], color: '#9c9c9c' },
+  { name: 'wood', floors: [4, 7], color: '#b3773c' },
+  { name: 'glass', floors: [8, 10], color: '#7cd7ff' }
+];
 
 // ===== Simple worker state machines =====
 const WorkerFSMConfig = {
@@ -43,11 +54,11 @@ const WorkerFSMConfig = {
     resting: { recovered: 'idle' }
   },
   delivery: {
-    idle: { fetch: 'headingToWood', rest: 'headingToDorm', cancel: 'idle' },
-    headingToWood: { arriveSource: 'loading', rest: 'headingToDorm', cancel: 'idle' },
+    idle: { fetch: 'headingToDepot', rest: 'headingToDorm', cancel: 'idle' },
+    headingToDepot: { arriveSource: 'loading', rest: 'headingToDorm', cancel: 'idle' },
     loading: { loadComplete: 'headingToSite', rest: 'headingToDorm', cancel: 'idle' },
     headingToSite: { arriveSite: 'delivering', rest: 'headingToDorm', cancel: 'idle' },
-    delivering: { dropComplete: 'headingToWood', rest: 'headingToDorm', cancel: 'idle' },
+    delivering: { dropComplete: 'headingToDepot', rest: 'headingToDorm', cancel: 'idle' },
     headingToDorm: { arriveRest: 'resting' },
     resting: { recovered: 'idle' }
   }
@@ -103,8 +114,28 @@ const textures = {
 };
 
 // ===== Utility helpers =====
-function woodNeeded(floor) {
-  return WOOD_BASE + WOOD_PER_FLOOR * (floor - 1);
+function materialNeededForFloor(floor) {
+  return MATERIAL_BASE + MATERIAL_PER_FLOOR * (floor - 1);
+}
+
+function materialForFloor(floor) {
+  const rule = MATERIAL_RULES.find(entry => floor >= entry.floors[0] && floor <= entry.floors[1]);
+  return rule ? rule.name : MATERIAL_RULES[MATERIAL_RULES.length - 1].name;
+}
+
+function materialColor(material) {
+  const rule = MATERIAL_RULES.find(entry => entry.name === material);
+  return rule ? rule.color : '#9c9c9c';
+}
+
+function materialLabel(material) {
+  return material ? material.charAt(0).toUpperCase() + material.slice(1) : 'Unknown';
+}
+
+function getDepotName(material) {
+  if (material === 'concrete') return 'Concrete Depot';
+  if (material === 'glass') return 'Glass Depot';
+  return 'Wood Depot';
 }
 
 function buildTimeFor(floor) {
@@ -133,6 +164,13 @@ const spawnCell = { ...playerCell };
 const rockTiles = buildRockTiles(rocks);
 const solidRects = [...zones, ...rockTiles];
 
+const world = {
+  currentMaterial: materialForFloor(1),
+  redBullBuff: { active: false, expiresAt: 0 },
+  nextRedBullAt: RED_BULL_INTERVAL,
+  redBullTile: null
+};
+
 let state = createInitialState(spawnCell, blockedCells);
 let player = state.player;
 let workers = state.workers;
@@ -156,8 +194,12 @@ const hudDelivery = document.getElementById('hud-delivery');
 // ===== HUD + panel references =====
 const pauseBtn = document.getElementById('pauseBtn');
 const speedBtn = document.getElementById('speedBtn');
-const woodFill = document.getElementById('woodFill');
-const woodText = document.getElementById('woodText');
+const materialFill = document.getElementById('materialFill');
+const materialText = document.getElementById('materialText');
+const materialIcon = document.getElementById('materialIcon');
+const materialName = document.getElementById('materialName');
+const materialStored = document.getElementById('materialStored');
+const materialNeeded = document.getElementById('materialNeeded');
 const progressFill = document.getElementById('progressFill');
 const progressText = document.getElementById('progressText');
 const bubble = document.getElementById('textBubble');
@@ -432,15 +474,23 @@ function updateHUD() {
   hudFloor.textContent = `${floorNumber}`;
 
   const currentNeed = state.floor.need;
-  const woodRatio = currentNeed <= 0
+  const currentMaterial = world.currentMaterial;
+  const storedAmount = state.stock[currentMaterial] || 0;
+  const materialRatio = currentNeed <= 0
     ? 1
-    : Math.max(0, Math.min(1, state.stock.wood / currentNeed));
-  const woodAmount = Number.isInteger(state.stock.wood)
-    ? state.stock.wood
-    : state.stock.wood.toFixed(1);
-  const woodNeedDisplay = currentNeed > 0 ? currentNeed : '—';
-  woodText.textContent = `${woodAmount}/${woodNeedDisplay}`;
-  woodFill.style.width = `${woodRatio * 100}%`;
+    : Math.max(0, Math.min(1, storedAmount / currentNeed));
+  const storedLabel = Number.isInteger(storedAmount) ? storedAmount : storedAmount.toFixed(1);
+  const needLabel = currentNeed > 0 ? currentNeed : '—';
+  materialText.textContent = `${storedLabel}/${needLabel}`;
+  materialFill.style.width = `${materialRatio * 100}%`;
+  materialName.textContent = materialLabel(currentMaterial);
+  if (materialStored) materialStored.textContent = storedLabel;
+  if (materialNeeded) materialNeeded.textContent = `${needLabel}`;
+  if (materialIcon) {
+    const iconColor = materialColor(currentMaterial);
+    materialIcon.style.background = `linear-gradient(135deg, ${iconColor}, ${shadeColor(iconColor, -18)})`;
+    materialIcon.style.boxShadow = `inset 0 0 0 2px rgba(255,255,255,0.08), 0 0 0 2px ${shadeColor(iconColor, -35)}`;
+  }
 
   const floorsBuilt = state.progress.floorsBuilt;
   const totalFloors = state.progress.totalFloors;
@@ -600,12 +650,31 @@ function generateZones() {
       padding: grid.cell
     },
     {
-      name: 'Wood House',
-      description: 'Stockpile for framing lumber.',
+      name: 'Concrete Depot',
+      description: 'Unlimited concrete supply.',
       tilesWide: 2,
       tilesHigh: 2,
-      color: textures.building,
-      padding: grid.cell * 0.75
+      color: '#9c9c9c',
+      padding: grid.cell * 0.75,
+      material: 'concrete'
+    },
+    {
+      name: 'Wood Depot',
+      description: 'Lumber pickup for mid floors.',
+      tilesWide: 2,
+      tilesHigh: 2,
+      color: '#9b6d3c',
+      padding: grid.cell * 0.75,
+      material: 'wood'
+    },
+    {
+      name: 'Glass Depot',
+      description: 'Glass and facade materials.',
+      tilesWide: 2,
+      tilesHigh: 2,
+      color: '#6bd3ff',
+      padding: grid.cell * 0.75,
+      material: 'glass'
     },
     {
       name: 'Starbucks',
@@ -683,7 +752,8 @@ function placeRandomZone(config, placed, padding) {
       width,
       height,
       color: config.color,
-      solid: true
+      solid: true,
+      material: config.material || null
     };
 
     const overlaps = placed.some(existing => rectsOverlap(zone, expandedRect(existing, padding)));
@@ -704,7 +774,8 @@ function placeRandomZone(config, placed, padding) {
     width,
     height,
     color: config.color,
-    solid: true
+    solid: true,
+    material: config.material || null
   };
 }
 
@@ -779,7 +850,7 @@ function withinGrid(col, row) {
 function generateRocks(zones, startCell, zoneEdgeMap, forbiddenCells = new Set()) {
   const occupancy = createBlockedSetFromZones(zones);
   const rocks = [];
-  const rockCount = getRandomInt(9, 15);
+  const rockCount = getRandomInt(7, 12);
   const shapeTypes = ['rectangle', 'square', 'circle'];
 
   for (let i = 0; i < rockCount; i++) {
@@ -956,6 +1027,7 @@ function createPlayer(cell) {
     speed: 150,
     color: '#f9f871',
     item: 'none',
+    material: null,
     cooldown: 0
   };
 }
@@ -972,11 +1044,15 @@ function createWorkers(playerCell, blocked) {
 function createInitialState(playerCell, blocked) {
   const player = createPlayer(playerCell);
   const workers = createWorkers(playerCell, blocked);
+  world.currentMaterial = materialForFloor(1);
+  world.redBullBuff = { active: false, expiresAt: 0 };
+  world.redBullTile = null;
+  world.nextRedBullAt = RED_BULL_INTERVAL;
   return {
     time: { elapsed: 0, speed: 1 },
     progress: { floorsBuilt: 0, totalFloors: MAX_FLOORS },
-    floor: { n: 1, progress: 0, need: woodNeeded(1), buildTime: buildTimeFor(1) },
-    stock: { wood: 2 },
+    floor: { n: 1, progress: 0, need: materialNeededForFloor(1), buildTime: buildTimeFor(1) },
+    stock: { concrete: 2, wood: 0, glass: 0 },
     player,
     workers
   };
@@ -1011,6 +1087,7 @@ function createWorker(id, role, name, cell, idleColor, activeColor, accentColor)
     level: 1,
     levelGlow: 0,
     inv: 0,
+    cargo: null,
     orderStarted: false,
     tripTimer: 0,
     idleSpeed: WORKER_IDLE_SPEED,
@@ -1046,7 +1123,7 @@ function handleMovement(dt) {
     playerVerticalInput *= diagonalNormalization;
   }
 
-  const distance = player.speed * dt * state.time.speed;
+  const distance = player.speed * getPlayerSpeedMultiplier() * dt * state.time.speed;
 
   const collisionRects = getCollisionRects();
 
@@ -1120,7 +1197,7 @@ function updateWorkers(dt) {
       }
 
       if (worker.target) {
-        const reached = moveWorkerToward(worker, worker.target, worker.idleSpeed, simDt);
+        const reached = moveWorkerToward(worker, worker.target, worker.idleSpeed * getWorkerSpeedMultiplier(), simDt);
         if (reached) {
           setWorkerDestination(worker, null);
         }
@@ -1164,6 +1241,7 @@ function handleBuilder(worker, dt) {
   if (!approach) {
     return;
   }
+  const requiredMaterial = world.currentMaterial;
 
   if (worker.activity !== 'toSite' && worker.activity !== 'building') {
     worker.activity = 'toSite';
@@ -1171,22 +1249,22 @@ function handleBuilder(worker, dt) {
   }
 
   if (worker.activity === 'toSite') {
-    const arrived = moveWorkerToward(worker, approach, WORKER_ACTIVE_SPEED, dt);
+    const arrived = moveWorkerToward(worker, approach, WORKER_ACTIVE_SPEED * getWorkerSpeedMultiplier(), dt);
     if (arrived) {
       alignWorkerToCenter(worker, approach);
       worker.stateMachine.transition('arriveWork', worker);
       setWorkerDestination(worker, null);
       worker.activity = 'building';
       if (!worker.buildReserved) {
-        if (state.stock.wood < state.floor.need) {
-          setWorkerOrder(worker, 'idle', 'Need more wood before building.');
+        if ((state.stock[requiredMaterial] || 0) < state.floor.need) {
+          setWorkerOrder(worker, 'idle', 'Need more material before building.');
           return;
         }
         if (worker.stamina < STAMINA_BUILD_COST) {
           setWorkerOrder(worker, 'rest', `${worker.name} needs rest before building.`);
           return;
         }
-        state.stock.wood = Math.max(0, state.stock.wood - state.floor.need);
+        state.stock[requiredMaterial] = Math.max(0, (state.stock[requiredMaterial] || 0) - state.floor.need);
         worker.stamina = Math.max(0, worker.stamina - STAMINA_BUILD_COST);
         worker.buildReserved = true;
       }
@@ -1200,7 +1278,8 @@ function handleBuilder(worker, dt) {
       setWorkerDestination(worker, approach);
       return;
     }
-    const progressGain = dt / (state.floor.buildTime * BUILD_PROGRESS_SLOWDOWN);
+    const buildMultiplier = getBuildTimeMultiplier();
+    const progressGain = dt / (state.floor.buildTime * BUILD_PROGRESS_SLOWDOWN * buildMultiplier);
     state.floor.progress = Math.min(1, state.floor.progress + progressGain);
     if (state.floor.progress >= 1) {
       worker.buildReserved = false;
@@ -1216,21 +1295,25 @@ function handleBuilder(worker, dt) {
 }
 
 function handleDelivery(worker, dt) {
-  const woodApproach = getApproachCenter('Wood House');
+  const requiredMaterial = world.currentMaterial;
+  const depotName = getDepotName(requiredMaterial);
+  const depotApproach = getApproachCenter(depotName);
   const mcsApproach = getApproachCenter('MCS Construction');
-  if (!woodApproach || !mcsApproach) {
+  const label = materialLabel(requiredMaterial);
+  if (!depotApproach || !mcsApproach) {
     return;
   }
 
-  if (!['toWood', 'loading', 'toMcs', 'delivering'].includes(worker.activity)) {
-    worker.activity = 'toWood';
-    setWorkerDestination(worker, woodApproach);
+  const deliveryStates = ['toDepot', 'loading', 'toMcs', 'delivering'];
+  if (!deliveryStates.includes(worker.activity)) {
+    worker.activity = 'toDepot';
+    setWorkerDestination(worker, depotApproach);
   }
 
-  if (worker.activity === 'toWood') {
-    const arrived = moveWorkerToward(worker, woodApproach, WORKER_ACTIVE_SPEED, dt);
+  if (worker.activity === 'toDepot') {
+    const arrived = moveWorkerToward(worker, depotApproach, WORKER_ACTIVE_SPEED * getWorkerSpeedMultiplier(), dt);
     if (arrived) {
-      alignWorkerToCenter(worker, woodApproach);
+      alignWorkerToCenter(worker, depotApproach);
       worker.stateMachine.transition('arriveSource', worker);
       worker.activity = 'loading';
       worker.taskTimer = 0;
@@ -1243,12 +1326,13 @@ function handleDelivery(worker, dt) {
     worker.taskTimer += dt;
     if (worker.taskTimer >= DELIVERY_LOAD_TIME) {
       worker.taskTimer = 0;
-      const remaining = Math.max(0, state.floor.need - state.stock.wood);
-      if (remaining <= 0) {
-        setWorkerOrder(worker, 'idle', 'Wood stock is full for this floor.');
+      const remaining = Math.max(0, state.floor.need - (state.stock[requiredMaterial] || 0));
+      if (remaining <= 0 && (!worker.cargo || worker.cargo !== requiredMaterial)) {
+        setWorkerOrder(worker, 'idle', `${label} already stocked for this floor.`);
         return;
       }
-      worker.inv = Math.min(1, remaining);
+      worker.inv = 1;
+      worker.cargo = requiredMaterial;
       worker.stateMachine.transition('loadComplete', worker);
       worker.activity = 'toMcs';
       setWorkerDestination(worker, mcsApproach);
@@ -1257,7 +1341,7 @@ function handleDelivery(worker, dt) {
   }
 
   if (worker.activity === 'toMcs') {
-    const arrived = moveWorkerToward(worker, mcsApproach, WORKER_CARRY_SPEED, dt);
+    const arrived = moveWorkerToward(worker, mcsApproach, WORKER_CARRY_SPEED * getWorkerSpeedMultiplier(), dt);
     if (arrived) {
       alignWorkerToCenter(worker, mcsApproach);
       worker.stateMachine.transition('arriveSite', worker);
@@ -1271,30 +1355,25 @@ function handleDelivery(worker, dt) {
     worker.taskTimer += dt;
     if (worker.taskTimer >= DELIVERY_DROP_TIME) {
       worker.taskTimer = 0;
-      if (worker.inv <= 0) {
-        worker.activity = 'toWood';
-        setWorkerDestination(worker, woodApproach);
+      if (worker.inv <= 0 || !worker.cargo) {
+        worker.activity = 'toDepot';
+        setWorkerDestination(worker, depotApproach);
         return;
       }
-      const room = Math.max(0, state.floor.need - state.stock.wood);
-      if (room <= 0) {
-        worker.activity = 'toWood';
-        setWorkerDestination(worker, woodApproach);
-        setWorkerOrder(worker, 'idle', 'Wood stock is full for this floor.');
-        return;
-      }
-      const delivered = Math.min(worker.inv, room);
-      state.stock.wood = Math.min(state.floor.need, state.stock.wood + delivered);
-      worker.inv -= delivered;
+      const delivered = worker.inv;
+      state.stock[worker.cargo] = (state.stock[worker.cargo] || 0) + delivered;
+      worker.inv = 0;
+      const dropMaterial = materialLabel(worker.cargo);
+      worker.cargo = null;
       worker.stateMachine.transition('dropComplete', worker);
       worker.stamina = Math.max(0, worker.stamina - DELIVERY_TRIP_COST);
-      statusEl.textContent = `${worker.name} delivered ${delivered} wood.`;
+      statusEl.textContent = `${worker.name} delivered ${delivered} ${dropMaterial.toLowerCase()}.`;
       if (worker.stamina <= 0) {
         setWorkerOrder(worker, 'rest', `${worker.name} is exhausted and heads to the dorm.`);
         return;
       }
-      worker.activity = 'toWood';
-      setWorkerDestination(worker, woodApproach);
+      worker.activity = 'toDepot';
+      setWorkerDestination(worker, depotApproach);
     }
   }
 }
@@ -1313,7 +1392,7 @@ function handleRest(worker, dt) {
   }
 
   if (worker.activity === 'toDorm') {
-    const arrived = moveWorkerToward(worker, dormApproach, WORKER_ACTIVE_SPEED, dt);
+    const arrived = moveWorkerToward(worker, dormApproach, WORKER_ACTIVE_SPEED * getWorkerSpeedMultiplier(), dt);
     if (arrived) {
       alignWorkerToCenter(worker, dormApproach);
       worker.stateMachine.transition('arriveRest', worker);
@@ -1368,9 +1447,17 @@ function completeFloor() {
 
   state.floor.n = Math.min(finished + 1, MAX_FLOORS);
   state.floor.progress = 0;
-  state.floor.need = woodNeeded(state.floor.n);
+  state.floor.need = materialNeededForFloor(state.floor.n);
   state.floor.buildTime = buildTimeFor(state.floor.n);
-  state.stock.wood = Math.min(state.stock.wood, state.floor.need);
+  world.currentMaterial = materialForFloor(state.floor.n);
+  workers.forEach(w => {
+    if (w.role === 'delivery' && w.order === 'deliver') {
+      w.activity = 'toDepot';
+      w.inv = 0;
+      w.cargo = null;
+      setWorkerDestination(w, getApproachCenter(getDepotName(world.currentMaterial)));
+    }
+  });
   refreshMcsZoneTexture();
   const message = `Floor ${finished} complete! Preparing materials for floor ${state.floor.n}.`;
   statusEl.textContent = message;
@@ -1662,6 +1749,31 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
+function shadeColor(hex, percent) {
+  const normalized = hex.replace('#', '');
+  const num = parseInt(normalized, 16);
+  const r = clamp((num >> 16) + Math.round(2.55 * percent), 0, 255);
+  const g = clamp(((num >> 8) & 0x00ff) + Math.round(2.55 * percent), 0, 255);
+  const b = clamp((num & 0x0000ff) + Math.round(2.55 * percent), 0, 255);
+  return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+}
+
+function isRedBullActive() {
+  return world.redBullBuff.active && state.time.elapsed < world.redBullBuff.expiresAt;
+}
+
+function getPlayerSpeedMultiplier() {
+  return isRedBullActive() ? RED_BULL_PLAYER_MULT : 1;
+}
+
+function getWorkerSpeedMultiplier() {
+  return isRedBullActive() ? RED_BULL_WORKER_MULT : 1;
+}
+
+function getBuildTimeMultiplier() {
+  return isRedBullActive() ? RED_BULL_BUILD_MULT : 1;
+}
+
 function drawGrid() {
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
   ctx.lineWidth = 1;
@@ -1742,6 +1854,30 @@ function drawZones() {
     }
   });
   ctx.textAlign = 'left';
+}
+
+function drawRedBull() {
+  if (!world.redBullTile) {
+    return;
+  }
+  const x = world.redBullTile.col * grid.cell;
+  const y = world.redBullTile.row * grid.cell;
+  ctx.save();
+  ctx.fillStyle = '#1d4df5';
+  ctx.fillRect(x + 4, y + 4, grid.cell - 8, grid.cell - 8);
+  ctx.strokeStyle = '#a8d8ff';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(x + 4, y + 4, grid.cell - 8, grid.cell - 8);
+  ctx.fillStyle = '#fce38a';
+  ctx.beginPath();
+  ctx.moveTo(x + grid.cell / 2 - 4, y + 8);
+  ctx.lineTo(x + grid.cell / 2 + 2, y + grid.cell / 2 - 2);
+  ctx.lineTo(x + grid.cell / 2 - 4, y + grid.cell / 2 - 2);
+  ctx.lineTo(x + grid.cell / 2 + 4, y + grid.cell - 10);
+  ctx.lineTo(x + grid.cell / 2 - 2, y + grid.cell / 2 + 6);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
 }
 
 function drawFloorProgress(zone) {
@@ -1831,9 +1967,12 @@ function drawWorkers() {
     ctx.fillRect(worker.x + 6, bodyY + worker.height - 6, worker.width - 12, 4);
 
     ctx.fillStyle = infoBg;
-    ctx.fillRect(worker.x - 20, bodyY - 48, worker.width + 40, 42);
+    ctx.fillRect(worker.x - 20, bodyY - 64, worker.width + 40, 58);
 
     ctx.textAlign = 'center';
+    ctx.fillStyle = stateColor;
+    ctx.fillText(getWorkerFloatingLabel(worker), worker.x + worker.width / 2, bodyY - 48);
+
     ctx.fillStyle = levelColor;
     ctx.fillText(`L${worker.level}`, worker.x + worker.width / 2, bodyY - 34);
 
@@ -1878,6 +2017,16 @@ function drawPlayer() {
     ctx.fillText('LATTE', player.x + player.width / 2, player.y - 23);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
+  } else if (player.item === 'material' && player.material) {
+    ctx.fillStyle = '#1d2238ee';
+    ctx.fillRect(player.x - 18, player.y - 36, player.width + 36, 26);
+    ctx.fillStyle = '#a8e0ff';
+    ctx.font = '11px "Press Start 2P", "VT323", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(materialLabel(player.material), player.x + player.width / 2, player.y - 23);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
   }
 }
 
@@ -1892,6 +2041,7 @@ function drawScene() {
   drawGrid();
   drawRocks();
   drawZones();
+  drawRedBull();
   drawWorkers();
   drawPlayer();
 }
@@ -1904,6 +2054,7 @@ function update(dt) {
     const scaledDt = dt * state.time.speed;
     if (!gameComplete) {
       state.time.elapsed += scaledDt;
+      updateRedBull(scaledDt);
     }
     if (player.cooldown > 0) {
       const cooldownDelta = gameComplete ? dt : scaledDt;
@@ -1936,6 +2087,61 @@ function showBubble(message) {
   }, 2200);
 }
 
+function updateRedBull() {
+  if (gameComplete) {
+    return;
+  }
+  if (world.redBullBuff.active && state.time.elapsed >= world.redBullBuff.expiresAt) {
+    world.redBullBuff.active = false;
+  }
+  if (!world.redBullTile && state.time.elapsed >= world.nextRedBullAt) {
+    spawnRedBullTile();
+  }
+  if (world.redBullTile) {
+    const tileRect = {
+      x: world.redBullTile.col * grid.cell,
+      y: world.redBullTile.row * grid.cell,
+      width: grid.cell,
+      height: grid.cell
+    };
+    if (rectsOverlap(tileRect, getPlayerRect())) {
+      applyRedBullBuff();
+    }
+  }
+}
+
+function spawnRedBullTile() {
+  const cell = findRedBullSpawnCell();
+  if (cell) {
+    world.redBullTile = cell;
+    world.nextRedBullAt = state.time.elapsed + RED_BULL_INTERVAL;
+  } else {
+    world.nextRedBullAt = state.time.elapsed + RED_BULL_INTERVAL;
+  }
+}
+
+function findRedBullSpawnCell() {
+  for (let attempt = 0; attempt < 400; attempt++) {
+    const col = getRandomInt(EDGE_MARGIN, grid.cols - EDGE_MARGIN - 1);
+    const row = getRandomInt(EDGE_MARGIN, grid.rows - EDGE_MARGIN - 1);
+    const key = cellKey({ col, row });
+    if (blockedCells.has(key)) {
+      continue;
+    }
+    return { col, row };
+  }
+  return null;
+}
+
+function applyRedBullBuff() {
+  world.redBullBuff = { active: true, expiresAt: state.time.elapsed + RED_BULL_DURATION };
+  world.redBullTile = null;
+  world.nextRedBullAt = state.time.elapsed + RED_BULL_INTERVAL;
+  const message = 'Red Bull collected! Everyone speeds up.';
+  statusEl.textContent = message;
+  showBubble(message);
+}
+
 function interact() {
   if (player.cooldown > 0) {
     return;
@@ -1950,6 +2156,34 @@ function interact() {
   const zone = getContextZone();
   const nearbyWorker = findNearbyWorker();
 
+  if (zone && zone.name === 'MCS Construction' && player.item === 'material' && player.material) {
+    const mat = player.material;
+    state.stock[mat] = (state.stock[mat] || 0) + 1;
+    const msg = `${materialLabel(mat)} delivered to the MCS site.`;
+    statusEl.textContent = msg;
+    showBubble(msg);
+    player.item = 'none';
+    player.material = null;
+    return;
+  }
+
+  if (zone && zone.material) {
+    if (player.item === 'coffee') {
+      showBubble('Hands full of coffee. Deliver it first.');
+      return;
+    }
+    if (player.item === 'material' && player.material === zone.material) {
+      showBubble(`Already carrying ${materialLabel(player.material).toLowerCase()}.`);
+      return;
+    }
+    player.item = 'material';
+    player.material = zone.material;
+    const pickMsg = `Picked up ${materialLabel(zone.material)}. Take it to the MCS.`;
+    statusEl.textContent = pickMsg;
+    showBubble(pickMsg);
+    return;
+  }
+
   if (player.item === 'coffee' && nearbyWorker) {
     deliverCoffee();
     return;
@@ -1958,6 +2192,8 @@ function interact() {
   if (zone && zone.name === 'Starbucks') {
     if (player.item === 'coffee') {
       showBubble('Arms full! Deliver this coffee first.');
+    } else if (player.item === 'material') {
+      showBubble('Can\'t juggle coffee with materials. Drop off at MCS first.');
     } else {
       player.item = 'coffee';
       showBubble('Hot coffee acquired! Find a worker to perk up.');
@@ -1981,6 +2217,8 @@ function interact() {
 
   if (player.item === 'coffee') {
     showBubble('You carry coffee. Find a worker to share it.');
+  } else if (player.item === 'material' && player.material) {
+    showBubble(`Carrying ${materialLabel(player.material)}. Deliver it to the MCS.`);
   } else {
     showBubble('You wave into the quiet night. Nothing happens.');
   }
@@ -2140,6 +2378,32 @@ function formatStateLabel(state) {
     .replace(/([a-z])([A-Z])/g, '$1 $2')
     .replace(/^./, char => char.toUpperCase());
 }
+
+function getWorkerFloatingLabel(worker) {
+  if (!worker) {
+    return 'Idle';
+  }
+  if (worker.order === 'rest' || worker.activity === 'resting') {
+    return 'Resting';
+  }
+  if (worker.order === 'build') {
+    if (worker.activity === 'building') {
+      return 'Building';
+    }
+    return 'Heading to Site';
+  }
+  if (worker.order === 'deliver') {
+    const label = materialLabel(world.currentMaterial);
+    if (worker.activity === 'loading' || worker.activity === 'toDepot') {
+      return `Fetching ${label}`;
+    }
+    if (worker.activity === 'delivering' || worker.activity === 'toMcs') {
+      return 'Delivering Material';
+    }
+    return 'Returning';
+  }
+  return 'Idle';
+}
 function isActionActive(worker, action) {
   if (action === 'build') {
     return worker.order === 'build';
@@ -2160,9 +2424,11 @@ function setWorkerOrder(worker, newOrder, messageOverride) {
     return;
   }
 
+  const requiredMaterial = world.currentMaterial;
+
   if (newOrder === 'build') {
-    if (state.stock.wood < state.floor.need) {
-      const msg = 'Need more wood before building.';
+    if ((state.stock[requiredMaterial] || 0) < state.floor.need) {
+      const msg = `Need more ${materialLabel(requiredMaterial).toLowerCase()} before building.`;
       statusEl.textContent = msg;
       showBubble(msg);
       refreshWorkerCards();
@@ -2209,6 +2475,7 @@ function setWorkerOrder(worker, newOrder, messageOverride) {
     worker.activity = 'idle';
     worker.buildReserved = false;
     worker.inv = 0;
+    worker.cargo = null;
     worker.visible = true;
   } else {
     setWorkerDestination(worker, null);
@@ -2221,8 +2488,9 @@ function setWorkerOrder(worker, newOrder, messageOverride) {
     if (newOrder === 'deliver') {
       worker.tripTimer = 0;
       worker.inv = 0;
-      worker.activity = 'toWood';
-      setWorkerDestination(worker, getApproachCenter('Wood House'));
+      worker.cargo = null;
+      worker.activity = 'toDepot';
+      setWorkerDestination(worker, getApproachCenter(getDepotName(world.currentMaterial)));
     }
     if (newOrder === 'rest') {
       worker.activity = 'toDorm';
@@ -2230,6 +2498,7 @@ function setWorkerOrder(worker, newOrder, messageOverride) {
       worker.restAnchor = null;
       worker.visible = true;
       worker.inv = 0;
+      worker.cargo = null;
     }
   }
 
@@ -2240,7 +2509,7 @@ function setWorkerOrder(worker, newOrder, messageOverride) {
     } else if (newOrder === 'build') {
       message = `${worker.name} starts building floor ${state.floor.n}.`;
     } else if (newOrder === 'deliver') {
-      message = `${worker.name} begins fetching wood.`;
+      message = `${worker.name} begins fetching ${materialLabel(requiredMaterial).toLowerCase()}.`;
     } else if (newOrder === 'rest') {
       message = `${worker.name} walks to the dorm for a break.`;
     }
