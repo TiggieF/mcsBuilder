@@ -196,7 +196,6 @@ const pauseBtn = document.getElementById('pauseBtn');
 const speedBtn = document.getElementById('speedBtn');
 const materialFill = document.getElementById('materialFill');
 const materialText = document.getElementById('materialText');
-const materialIcon = document.getElementById('materialIcon');
 const materialName = document.getElementById('materialName');
 const materialStored = document.getElementById('materialStored');
 const materialNeeded = document.getElementById('materialNeeded');
@@ -486,11 +485,6 @@ function updateHUD() {
   materialName.textContent = materialLabel(currentMaterial);
   if (materialStored) materialStored.textContent = storedLabel;
   if (materialNeeded) materialNeeded.textContent = `${needLabel}`;
-  if (materialIcon) {
-    const iconColor = materialColor(currentMaterial);
-    materialIcon.style.background = `linear-gradient(135deg, ${iconColor}, ${shadeColor(iconColor, -18)})`;
-    materialIcon.style.boxShadow = `inset 0 0 0 2px rgba(255,255,255,0.08), 0 0 0 2px ${shadeColor(iconColor, -35)}`;
-  }
 
   const floorsBuilt = state.progress.floorsBuilt;
   const totalFloors = state.progress.totalFloors;
@@ -1988,6 +1982,18 @@ function drawWorkers() {
 }
 
 function drawPlayer() {
+  const playerCellRect = {
+    x: Math.floor(player.x / grid.cell) * grid.cell,
+    y: Math.floor(player.y / grid.cell) * grid.cell,
+    width: grid.cell,
+    height: grid.cell
+  };
+
+  if (isRedBullActive()) {
+    ctx.fillStyle = 'rgba(255, 80, 80, 0.35)';
+    ctx.fillRect(playerCellRect.x, playerCellRect.y, playerCellRect.width, playerCellRect.height);
+  }
+
   ctx.fillStyle = '#00000088';
   ctx.fillRect(player.x - 4, player.y + player.height, player.width + 8, 6);
 
@@ -2015,16 +2021,6 @@ function drawPlayer() {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('LATTE', player.x + player.width / 2, player.y - 23);
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'alphabetic';
-  } else if (player.item === 'material' && player.material) {
-    ctx.fillStyle = '#1d2238ee';
-    ctx.fillRect(player.x - 18, player.y - 36, player.width + 36, 26);
-    ctx.fillStyle = '#a8e0ff';
-    ctx.font = '11px "Press Start 2P", "VT323", monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(materialLabel(player.material), player.x + player.width / 2, player.y - 23);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
   }
@@ -2156,44 +2152,21 @@ function interact() {
   const zone = getContextZone();
   const nearbyWorker = findNearbyWorker();
 
-  if (zone && zone.name === 'MCS Construction' && player.item === 'material' && player.material) {
-    const mat = player.material;
-    state.stock[mat] = (state.stock[mat] || 0) + 1;
-    const msg = `${materialLabel(mat)} delivered to the MCS site.`;
-    statusEl.textContent = msg;
-    showBubble(msg);
-    player.item = 'none';
-    player.material = null;
+  if (player.item === 'coffee' && nearbyWorker) {
+    deliverCoffee();
     return;
   }
 
   if (zone && zone.material) {
-    if (player.item === 'coffee') {
-      showBubble('Hands full of coffee. Deliver it first.');
-      return;
-    }
-    if (player.item === 'material' && player.material === zone.material) {
-      showBubble(`Already carrying ${materialLabel(player.material).toLowerCase()}.`);
-      return;
-    }
-    player.item = 'material';
-    player.material = zone.material;
-    const pickMsg = `Picked up ${materialLabel(zone.material)}. Take it to the MCS.`;
-    statusEl.textContent = pickMsg;
-    showBubble(pickMsg);
-    return;
-  }
-
-  if (player.item === 'coffee' && nearbyWorker) {
-    deliverCoffee();
+    const depotMsg = `${materialLabel(zone.material)} depot ready. Delivery worker will fetch.`;
+    statusEl.textContent = depotMsg;
+    showBubble(depotMsg);
     return;
   }
 
   if (zone && zone.name === 'Starbucks') {
     if (player.item === 'coffee') {
       showBubble('Arms full! Deliver this coffee first.');
-    } else if (player.item === 'material') {
-      showBubble('Can\'t juggle coffee with materials. Drop off at MCS first.');
     } else {
       player.item = 'coffee';
       showBubble('Hot coffee acquired! Find a worker to perk up.');
@@ -2217,8 +2190,6 @@ function interact() {
 
   if (player.item === 'coffee') {
     showBubble('You carry coffee. Find a worker to share it.');
-  } else if (player.item === 'material' && player.material) {
-    showBubble(`Carrying ${materialLabel(player.material)}. Deliver it to the MCS.`);
   } else {
     showBubble('You wave into the quiet night. Nothing happens.');
   }
