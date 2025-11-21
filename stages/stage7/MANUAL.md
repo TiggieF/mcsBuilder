@@ -4,8 +4,8 @@
 - **Three material types**: Concrete (floors 1–3), Wood (4–7), and Glass (8–10) with automatic detection per floor.
 - **Material depots**: Dedicated 2×2 depots for each material (grey concrete, brown wood, cyan glass) with one-tile pickup spots.
 - **Dynamic stock system**: MCS stock tracks each material independently, allows overflow, and blocks building until the required material count is available.
-- **Red Bull power-up**: Spawns every 5 in-game minutes; boosts player/worker speed and build speed for 60 seconds.
-- **HUD upgrades**: Slimmer material card (stored/needed counts only) plus worker floating state labels above each worker.
+- **Red Bull power-up**: Spawns every 5 in-game minutes; boosts player/worker speed and build speed for 60 seconds with map-wide red ground tint while active.
+- **HUD + labels**: Slimmer material card (name + bar only) and floating worker state labels above each worker; Red Bull shows as a floating label above the player.
 - **Obstacle tuning**: Reduced obstacle density (~20–25% fewer) and depots keep a 1-tile clearance from obstacles.
 
 ## How to test the stage
@@ -21,9 +21,9 @@
    - Walk into any depot and press **Space**. The player should *not* pick up materials; only coffee is carriable. Delivery keeps handling all material runs.
 5. **Red Bull power-up**
    - Let the in-game clock reach 5:00 (speed-up is allowed). A blue Red Bull tile should spawn on the map.
-   - Pick it up with the player: speeds jump (player ×2, workers ×1.3) and build time shortens (×0.9) for 60s. The ground tile under the player glows red while the buff is active. Timer refreshes if collected again.
+   - Pick it up with the player: speeds jump (player ×2, workers ×1.3) and build time shortens (×0.9) for 60s. The entire ground tint turns red and the player gains a floating **REDBULL** label while the buff is active. Timer refreshes if collected again.
 6. **HUD and labels**
-   - Verify the HUD shows stored vs. needed counts for the active material and updates as Delivery drops off and Builder consumes stock.
+   - Verify the HUD material card shows only the active material name and bar. The bar should fill relative to stored vs. needed stock per floor.
    - Floating labels above workers should read states such as "Fetching Concrete", "Delivering Material", "Building", or "Resting" and update as orders change.
 
 ## Gameplay & interaction notes
@@ -34,7 +34,7 @@
   - Delivery fetches only the required material for the current floor and carries one unit per trip.
   - Builder won’t start until enough of the required material is stocked; stamina is consumed on build start.
   - Rest sends workers to the dorm; they remain hidden while recovering.
-- **Red Bull**: Only the player can collect it. Buff expires automatically after 60s or on restart; the ground under the player is tinted red during the buff, and future spawns are scheduled every 300s of in-game time.
+- **Red Bull**: Only the player can collect it. Buff expires automatically after 60s or on restart; the ground is tinted red during the buff, and future spawns are scheduled every 300s of in-game time.
 - **Obstacles**: Rocks/ponds are sparser than previous stages and never sit within 1 tile of any depot.
 
 ## Known limitations

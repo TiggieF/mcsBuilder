@@ -197,8 +197,6 @@ const speedBtn = document.getElementById('speedBtn');
 const materialFill = document.getElementById('materialFill');
 const materialText = document.getElementById('materialText');
 const materialName = document.getElementById('materialName');
-const materialStored = document.getElementById('materialStored');
-const materialNeeded = document.getElementById('materialNeeded');
 const progressFill = document.getElementById('progressFill');
 const progressText = document.getElementById('progressText');
 const bubble = document.getElementById('textBubble');
@@ -483,8 +481,6 @@ function updateHUD() {
   materialText.textContent = `${storedLabel}/${needLabel}`;
   materialFill.style.width = `${materialRatio * 100}%`;
   materialName.textContent = materialLabel(currentMaterial);
-  if (materialStored) materialStored.textContent = storedLabel;
-  if (materialNeeded) materialNeeded.textContent = `${needLabel}`;
 
   const floorsBuilt = state.progress.floorsBuilt;
   const totalFloors = state.progress.totalFloors;
@@ -2013,16 +2009,31 @@ function drawPlayer() {
   ctx.fillStyle = '#41436a';
   ctx.fillRect(player.x + 2, player.y + player.height - 6, player.width - 4, 6);
 
+  const statusLabels = [];
   if (player.item === 'coffee') {
+    statusLabels.push('LATTE');
+  }
+  if (isRedBullActive()) {
+    statusLabels.push('REDBULL');
+  }
+  if (statusLabels.length > 0) {
     ctx.fillStyle = '#1d2238ee';
-    ctx.fillRect(player.x - 14, player.y - 36, player.width + 28, 26);
-    ctx.fillStyle = '#fce38a';
-    ctx.font = '12px "Press Start 2P", "VT323", monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('LATTE', player.x + player.width / 2, player.y - 23);
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'alphabetic';
+    const labelHeight = 26;
+    const spacing = 4;
+    const totalHeight = statusLabels.length * labelHeight + (statusLabels.length - 1) * spacing;
+    let currentY = player.y - 10 - totalHeight;
+    statusLabels.forEach(label => {
+      ctx.fillRect(player.x - 14, currentY, player.width + 28, labelHeight);
+      ctx.fillStyle = '#fce38a';
+      ctx.font = '12px "Press Start 2P", "VT323", monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, player.x + player.width / 2, currentY + labelHeight / 2 - 1);
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillStyle = '#1d2238ee';
+      currentY += labelHeight + spacing;
+    });
   }
 }
 
@@ -2032,6 +2043,10 @@ function drawScene() {
     ctx.fillRect(0, 0, canvas.width, canvas.height);
   } else {
     ctx.fillStyle = '#0e1320';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+  if (isRedBullActive()) {
+    ctx.fillStyle = 'rgba(255, 64, 64, 0.28)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
   drawGrid();
