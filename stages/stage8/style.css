@@ -159,7 +159,7 @@ canvas {
 
 .audio-row {
   display: grid;
-  grid-template-columns: 65px 1fr 64px;
+  grid-template-columns: 70px auto;
   align-items: center;
   gap: 0.35rem;
   font-size: 0.7rem;
@@ -171,6 +171,8 @@ canvas {
 
 .audio-row input[type="range"] {
   accent-color: var(--accent);
+  width: 70%;
+  max-width: 140px;
 }
 
 .audio-toggles {
@@ -179,11 +181,6 @@ canvas {
   gap: 0.4rem;
   font-size: 0.65rem;
   opacity: 0.85;
-}
-
-.slider-value {
-  text-align: right;
-  opacity: 0.75;
 }
 
 body.game-complete canvas {

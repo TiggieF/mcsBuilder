@@ -40,16 +40,17 @@ const RED_BULL_BUILD_MULT = 0.9;
 const SNOW_MIN_PARTICLES = 320;
 const SNOW_MAX_PARTICLES = 480;
 const SNOW_OVERLAY_ALPHA = 0.08;
-const SNOW_START_MIN = 180;
-const SNOW_START_MAX = 420;
-const SNOW_BREAK_MIN = 160;
-const SNOW_BREAK_MAX = 320;
+const SNOW_INTERVAL = 600;
+const SNOW_START_MIN = SNOW_INTERVAL;
+const SNOW_START_MAX = SNOW_INTERVAL;
+const SNOW_BREAK_MIN = SNOW_INTERVAL;
+const SNOW_BREAK_MAX = SNOW_INTERVAL;
 const SNOW_MIN_DURATION = 120;
 const SNOW_WIND_STRENGTH = 18;
 const SNOW_SWAY_SPEED = 0.7;
 const SNOW_FALL_MIN = 28;
 const SNOW_FALL_MAX = 70;
-const SNOW_SPEED_MULT = 0.9;
+const SNOW_SPEED_MULT = 0.7;
 const SNOW_BUILD_MULT = 1.1;
 const SNOW_FETCH_MULT = 1.1;
 const AUDIO_PATH = '../music/';
@@ -173,7 +174,7 @@ function createSnowState() {
   return {
     active: false,
     particles: [],
-    nextEventAt: Math.random() < 0.5 ? 0 : getRandomInt(SNOW_START_MIN, SNOW_START_MAX),
+    nextEventAt: SNOW_INTERVAL,
     minActiveUntil: 0,
     endAt: 0,
     overlayAlpha: 0,
@@ -252,9 +253,6 @@ const workerCards = Array.from(document.querySelectorAll('.worker-card'));
 const masterVolume = document.getElementById('masterVolume');
 const musicVolume = document.getElementById('musicVolume');
 const sfxVolume = document.getElementById('sfxVolume');
-const masterValue = document.getElementById('masterValue');
-const musicValue = document.getElementById('musicValue');
-const sfxValue = document.getElementById('sfxValue');
 const muteAll = document.getElementById('muteAll');
 const muteMusic = document.getElementById('muteMusic');
 const muteSfx = document.getElementById('muteSfx');
@@ -654,18 +652,9 @@ function createAudioSystem() {
 }
 
 function syncVolumeUI() {
-  if (masterVolume && masterValue) {
-    masterVolume.value = audio.volumes.master;
-    masterValue.textContent = `${Math.round(audio.volumes.master * 100)}%`;
-  }
-  if (musicVolume && musicValue) {
-    musicVolume.value = audio.volumes.music;
-    musicValue.textContent = `${Math.round(audio.volumes.music * 100)}%`;
-  }
-  if (sfxVolume && sfxValue) {
-    sfxVolume.value = audio.volumes.sfx;
-    sfxValue.textContent = `${Math.round(audio.volumes.sfx * 100)}%`;
-  }
+  if (masterVolume) masterVolume.value = audio.volumes.master;
+  if (musicVolume) musicVolume.value = audio.volumes.music;
+  if (sfxVolume) sfxVolume.value = audio.volumes.sfx;
   if (muteAll) muteAll.checked = audio.mutes.master;
   if (muteMusic) muteMusic.checked = audio.mutes.music;
   if (muteSfx) muteSfx.checked = audio.mutes.sfx;
@@ -1991,6 +1980,7 @@ function startSnow() {
   snow.endAt = snow.minActiveUntil + getRandomInt(40, 140);
   snow.windPhase = Math.random() * Math.PI * 2;
   snow.particles = createSnowParticles(getRandomInt(SNOW_MIN_PARTICLES, SNOW_MAX_PARTICLES));
+  showBubble('SNOW!');
   toggleSnowBanner(true);
 }
 
@@ -2006,7 +1996,7 @@ function resetSnow() {
   snow.overlayAlpha = 0;
   snow.minActiveUntil = 0;
   snow.endAt = 0;
-  snow.nextEventAt = Math.random() < 0.5 ? 0 : getRandomInt(SNOW_START_MIN, SNOW_START_MAX);
+  snow.nextEventAt = SNOW_INTERVAL;
   toggleSnowBanner(false);
 }
 
@@ -2616,6 +2606,11 @@ function togglePause() {
   isPaused = !isPaused;
   if (pauseBtn) {
     pauseBtn.textContent = isPaused ? 'Resume' : 'Pause';
+  }
+  if (isPaused) {
+    audio.stopMusic();
+  } else {
+    audio.playMusic();
   }
   statusEl.textContent = isPaused ? 'Simulation paused.' : 'Simulation running.';
 }
