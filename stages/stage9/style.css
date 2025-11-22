@@ -47,18 +47,6 @@ body {
   margin: 0 0 0.5rem;
 }
 
-.start-panel .version {
-  opacity: 0.7;
-  letter-spacing: 0.08em;
-  margin: 0 0 0.35rem;
-}
-
-.start-panel .lede {
-  margin: 0 0 1.25rem;
-  color: rgba(245, 245, 248, 0.85);
-  font-size: 0.85rem;
-}
-
 .difficulty-row {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -91,11 +79,23 @@ body {
 
 .start-panel button {
   width: 100%;
+  padding: 0.85rem 0.75rem;
+  background: rgba(255, 255, 255, 0.06);
+  border: 2px solid #d6d9e3;
+  color: #ffffff;
+  letter-spacing: 0.08em;
+  font-family: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: transform 0.1s ease, box-shadow 0.2s ease, background 0.2s ease;
 }
 
-.start-panel .ghost {
-  background: transparent;
-  border-style: dashed;
+.start-panel button:hover,
+.start-panel button:focus {
+  outline: none;
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 0 0 3px rgba(214, 217, 227, 0.14);
 }
 
 .controls-panel {
