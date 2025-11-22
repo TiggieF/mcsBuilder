@@ -5,10 +5,10 @@
 - **Snow gameplay modifiers**: movement ×0.7 (30% slower), build time ×1.1, and fetch/drop time ×1.1 whenever snow is active.
 - **Predictable snow cadence**: storms occur every 10 in-game minutes and last at least 2 minutes; a “SNOW!” head bubble appears when they start.
 - **Audio overhaul**: background music with spatial SFX for fetch, delivery, coffee, Red Bull, UI clicks, and an optional build hammer loop; simplified sliders plus mute toggles.
-- **Denser terrain**: roughly 10% more rocks and ponds compared to Stage 07 while keeping paths open.
+- **Denser terrain**: roughly 15% more rocks and ponds compared to Stage 07 while keeping paths open.
 
 ## How to test snow effects
-1. Start the stage and let the timer reach 10:00; a snow banner, ❄️ HUD icon, and “SNOW!” head bubble should appear together.
+1. Start the stage and let the timer reach 10:00; a snow banner, ❄️ HUD icon, and “SNOW!” head bubble above the player should appear together.
 2. Observe the translucent overlay, falling particles, and thin snow lines on obstacle tops throughout the storm.
 3. After at least 2 minutes of snow, wait for the banner/icon to hide; the next storm should arrive 10 minutes after the previous one ends.
 
@@ -28,7 +28,8 @@
 ## Volume sliders and mute toggles
 - Use the compact **Master**, **Music**, and **SFX** sliders (no numeric readout) to adjust loudness; moving any slider immediately updates the mix.
 - **Mute All** silences everything; **Mute Music** or **Mute SFX** affect only that channel. Unmuting resumes audio at the slider levels.
+- Pause/Resume should not interrupt the looping background track; it keeps playing until you win (or restart), where it stops and then restarts when you begin again.
 
 ## Snow HUD confirmation
-- When snow begins, the HUD weather card highlights the **❄️** icon, the label reads “Snowing,” the “SNOW!” head bubble appears, and the “Snow Active” banner shows.
+- When snow begins, the HUD weather card highlights the **❄️** icon, the label reads “Snowing,” the “SNOW!” head bubble appears above the player, and the “Snow Active” banner shows.
 - When snow stops, the ❄️ fades out, the label returns to “Clear Skies,” and the banner hides; the head bubble also clears after its brief display.

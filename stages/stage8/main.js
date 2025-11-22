@@ -606,9 +606,12 @@ function createAudioSystem() {
     musicTrack.play().catch(() => {});
   }
 
-  function stopMusic() {
+  function stopMusic(reset = false) {
     if (musicTrack) {
       musicTrack.pause();
+      if (reset) {
+        musicTrack.currentTime = 0;
+      }
     }
   }
 
@@ -1051,7 +1054,7 @@ function withinGrid(col, row) {
 function generateRocks(zones, startCell, zoneEdgeMap, forbiddenCells = new Set()) {
   const occupancy = createBlockedSetFromZones(zones);
   const rocks = [];
-  const rockCount = getRandomInt(8, 13);
+  const rockCount = getRandomInt(9, 15);
   const shapeTypes = ['rectangle', 'square', 'circle'];
 
   for (let i = 0; i < rockCount; i++) {
@@ -1684,6 +1687,7 @@ function triggerWin(finalFloor) {
   state.time.speed = 0;
   updateSpeedLabel();
   document.body.classList.add('game-complete');
+  audio.stopMusic();
   if (winOverlay) {
     winOverlay.classList.add('show');
   }
@@ -1710,6 +1714,7 @@ function restartGame() {
     clearTimeout(bubbleTimeout);
     bubbleTimeout = null;
   }
+  audio.stopMusic(true);
   state = createInitialState(spawnCell, blockedCells);
   player = state.player;
   workers = state.workers;
@@ -1736,6 +1741,7 @@ function restartGame() {
   refreshMcsZoneTexture();
   statusEl.textContent = 'Project reset. Ready for another build!';
   showBubble('Fresh blueprint loaded. Let\'s build again!');
+  audio.playMusic();
   refreshWorkerCards();
   updateHUD();
 }
@@ -2606,11 +2612,6 @@ function togglePause() {
   isPaused = !isPaused;
   if (pauseBtn) {
     pauseBtn.textContent = isPaused ? 'Resume' : 'Pause';
-  }
-  if (isPaused) {
-    audio.stopMusic();
-  } else {
-    audio.playMusic();
   }
   statusEl.textContent = isPaused ? 'Simulation paused.' : 'Simulation running.';
 }
