@@ -4,7 +4,7 @@
 - **Snow weather system** with 300–500 drifting particles, a frosty overlay, and light caps on obstacle tops.
 - **Snow gameplay modifiers**: movement ×0.7 (30% slower), build time ×1.1, and fetch/drop time ×1.1 whenever snow is active.
 - **Predictable snow cadence**: storms occur every 10 in-game minutes and last at least 2 minutes; a “SNOW!” head bubble appears when they start.
-- **Audio overhaul**: background music with spatial SFX for fetch, delivery, coffee, Red Bull, UI clicks, and an optional build hammer loop; simplified sliders plus mute toggles.
+- **Audio overhaul**: background music with spatial SFX for fetch, delivery, coffee, Red Bull, UI clicks, and an optional build hammer loop; compact sliders control loudness.
 - **Denser terrain**: roughly 15% more rocks and ponds compared to Stage 07 while keeping paths open.
 
 ## How to test snow effects
@@ -25,10 +25,9 @@
 - **UI click**: press Pause/Resume, Speed, or any worker action; each click emits the UI sound.
 - **Build hammer (optional)**: while the Builder is actively constructing, a soft hammer loop plays; it should quiet down when they stop.
 
-## Volume sliders and mute toggles
+## Volume sliders
 - Use the compact **Master**, **Music**, and **SFX** sliders (no numeric readout) to adjust loudness; moving any slider immediately updates the mix.
-- **Mute All** silences everything; **Mute Music** or **Mute SFX** affect only that channel. Unmuting resumes audio at the slider levels.
-- Pause/Resume should not interrupt the looping background track; it keeps playing until you win (or restart), where it stops and then restarts when you begin again.
+- The background track pauses as soon as you pause the game and resumes when you unpause. Winning or restarting stops it; restarting begins it again.
 
 ## Snow HUD confirmation
 - When snow begins, the HUD weather card highlights the **❄️** icon, the label reads “Snowing,” the “SNOW!” head bubble appears above the player, and the “Snow Active” banner shows.

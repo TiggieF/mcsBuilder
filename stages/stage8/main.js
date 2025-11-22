@@ -253,9 +253,6 @@ const workerCards = Array.from(document.querySelectorAll('.worker-card'));
 const masterVolume = document.getElementById('masterVolume');
 const musicVolume = document.getElementById('musicVolume');
 const sfxVolume = document.getElementById('sfxVolume');
-const muteAll = document.getElementById('muteAll');
-const muteMusic = document.getElementById('muteMusic');
-const muteSfx = document.getElementById('muteSfx');
 const audio = createAudioSystem();
 bubble.style.display = 'none';
 updateSpeedLabel();
@@ -570,7 +567,6 @@ function updateHUD() {
 
 function createAudioSystem() {
   const volumes = { ...DEFAULT_VOLUME };
-  const mutes = { master: false, music: false, sfx: false };
   const sounds = {};
   let musicTrack = null;
 
@@ -585,9 +581,6 @@ function createAudioSystem() {
   });
 
   function computeVolume(type, base = 1) {
-    if (mutes.master) return 0;
-    if (type === 'music' && mutes.music) return 0;
-    if (type === 'sfx' && mutes.sfx) return 0;
     const bucket = type === 'music' ? volumes.music : volumes.sfx;
     return clamp(base * volumes.master * bucket, 0, 1);
   }
@@ -604,6 +597,12 @@ function createAudioSystem() {
     if (!musicTrack) return;
     musicTrack.volume = computeVolume('music', 0.55);
     musicTrack.play().catch(() => {});
+  }
+
+  function pauseMusic() {
+    if (musicTrack) {
+      musicTrack.pause();
+    }
   }
 
   function stopMusic(reset = false) {
@@ -634,33 +633,25 @@ function createAudioSystem() {
     refresh();
   }
 
-  function setMute(kind, value) {
-    mutes[kind] = value;
-    refresh();
-  }
-
   function refresh() {
     if (musicTrack) {
       musicTrack.volume = computeVolume('music', 0.55);
-      if (!musicTrack.paused && computeVolume('music', 0.55) === 0) {
+      if (!musicTrack.paused && musicTrack.volume === 0) {
         musicTrack.pause();
       }
-      if (musicTrack.paused && computeVolume('music', 0.55) > 0) {
+      if (musicTrack.paused && musicTrack.volume > 0 && !isPaused) {
         musicTrack.play().catch(() => {});
       }
     }
   }
 
-  return { playMusic, playSfx, setVolume, setMute, refresh, stopMusic, volumes, mutes };
+  return { playMusic, pauseMusic, playSfx, setVolume, refresh, stopMusic, volumes };
 }
 
 function syncVolumeUI() {
   if (masterVolume) masterVolume.value = audio.volumes.master;
   if (musicVolume) musicVolume.value = audio.volumes.music;
   if (sfxVolume) sfxVolume.value = audio.volumes.sfx;
-  if (muteAll) muteAll.checked = audio.mutes.master;
-  if (muteMusic) muteMusic.checked = audio.mutes.music;
-  if (muteSfx) muteSfx.checked = audio.mutes.sfx;
 }
 
 let audioPrimed = false;
@@ -691,24 +682,6 @@ function bindAudioUI() {
   if (sfxVolume) {
     sfxVolume.addEventListener('input', () => {
       audio.setVolume('sfx', parseFloat(sfxVolume.value));
-      syncVolumeUI();
-    });
-  }
-  if (muteAll) {
-    muteAll.addEventListener('change', () => {
-      audio.setMute('master', muteAll.checked);
-      syncVolumeUI();
-    });
-  }
-  if (muteMusic) {
-    muteMusic.addEventListener('change', () => {
-      audio.setMute('music', muteMusic.checked);
-      syncVolumeUI();
-    });
-  }
-  if (muteSfx) {
-    muteSfx.addEventListener('change', () => {
-      audio.setMute('sfx', muteSfx.checked);
       syncVolumeUI();
     });
   }
@@ -2610,6 +2583,11 @@ function togglePause() {
   }
   playUiClick();
   isPaused = !isPaused;
+  if (isPaused) {
+    audio.pauseMusic();
+  } else if (!gameComplete) {
+    audio.playMusic();
+  }
   if (pauseBtn) {
     pauseBtn.textContent = isPaused ? 'Resume' : 'Pause';
   }
