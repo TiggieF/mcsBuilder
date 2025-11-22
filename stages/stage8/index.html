@@ -40,6 +40,10 @@
       <span class="label">Delivery Level</span>
       <span class="value" id="hud-delivery">L1 · 5 SP</span>
     </div>
+    <div class="hud-item weather" id="snowHud">
+      <span class="label">Weather</span>
+      <span class="value"><span class="snow-icon" id="snowIcon" aria-hidden="true">❄️</span> <span id="snowLabel">Clear Skies</span></span>
+    </div>
   </div>
   <div class="main-wrapper">
     <canvas id="gameCanvas" width="1140" height="600" aria-label="mcsBuilder playfield"></canvas>
@@ -47,6 +51,20 @@
       <h2>Control Panel</h2>
       <button id="pauseBtn" type="button">Pause</button>
       <button id="speedBtn" type="button">Speed: 1×</button>
+      <section class="audio-controls" aria-label="audio controls">
+        <div class="audio-row">
+          <label for="masterVolume">Master</label>
+          <input id="masterVolume" type="range" min="0" max="1" step="0.01" value="0.85" />
+        </div>
+        <div class="audio-row">
+          <label for="musicVolume">Music</label>
+          <input id="musicVolume" type="range" min="0" max="1" step="0.01" value="0.7" />
+        </div>
+        <div class="audio-row">
+          <label for="sfxVolume">SFX</label>
+          <input id="sfxVolume" type="range" min="0" max="1" step="0.01" value="0.85" />
+        </div>
+      </section>
       <section class="worker-group" aria-label="worker commands">
         <div class="worker-card" data-worker="builder">
           <div class="worker-header">
@@ -92,6 +110,7 @@
     </div>
   </div>
   <div id="textBubble" role="status" aria-live="polite"></div>
+  <div id="snowBanner" aria-live="polite">❄️ Snow Active</div>
   <script src="main.js"></script>
 </body>
 </html>
