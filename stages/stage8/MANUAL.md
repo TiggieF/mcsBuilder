@@ -1,42 +1,34 @@
-# mcsBuilder Stage 07 Manual
+# mcsBuilder Stage 08 Manual
 
 ## New features in this stage
-- **Three material types**: Concrete (floors 1–3), Wood (4–7), and Glass (8–10) with automatic detection per floor.
-- **Material depots**: Dedicated 2×2 depots for each material (grey concrete, brown wood, cyan glass) with one-tile pickup spots.
-- **Dynamic stock system**: MCS stock tracks each material independently, allows overflow, and blocks building until the required material count is available.
-- **Red Bull power-up**: Spawns every 5 in-game minutes; boosts player/worker speed and build speed for 60 seconds with map-wide red ground tint while active.
-- **HUD + labels**: Slimmer material card (name + bar only) and floating worker state labels above each worker; Red Bull shows as a floating label above the player.
-- **Obstacle tuning**: Reduced obstacle density (~20–25% fewer) and depots keep a 1-tile clearance from obstacles.
+- **Snow weather system** with 300–500 drifting particles, a frosty overlay, and light caps on obstacle tops.
+- **Snow gameplay modifiers**: movement ×0.7 (30% slower), build time ×1.1, and fetch/drop time ×1.1 whenever snow is active.
+- **Predictable snow cadence**: storms occur every 10 in-game minutes and last at least 2 minutes; a “SNOW!” head bubble appears when they start.
+- **Audio overhaul**: background music with spatial SFX for fetch, delivery, coffee, Red Bull, UI clicks, and an optional build hammer loop; compact sliders control loudness.
+- **Denser terrain**: roughly 15% more rocks and ponds compared to Stage 07 while keeping paths open.
 
-## How to test the stage
-1. **Material progression**
-   - Start a new run and note the HUD material card shows **Concrete**.
-   - Build through floor 3; when floor 4 starts, HUD should flip to **Wood**, and to **Glass** at floor 8.
-2. **Depot spacing**
-   - Inspect the map at start: each depot is a 2×2 block not touching the boundary or obstacles. Rocks/ponds should not be within 1 tile of any depot.
-3. **Worker fetch logic**
-   - Assign Delivery to fetch. Confirm they walk to the depot that matches the current floor material and deliver 1 unit at a time to the MCS.
-   - When stock is full for the floor, Delivery idles instead of over-fetching.
-4. **Player role check**
-   - Walk into any depot and press **Space**. The player should *not* pick up materials; only coffee is carriable. Delivery keeps handling all material runs.
-5. **Red Bull power-up**
-   - Let the in-game clock reach 5:00 (speed-up is allowed). A blue Red Bull tile should spawn on the map.
-   - Pick it up with the player: speeds jump (player ×2, workers ×1.3) and build time shortens (×0.9) for 60s. The entire ground tint turns red and the player gains a floating **REDBULL** label while the buff is active. Timer refreshes if collected again.
-6. **HUD and labels**
-   - Verify the HUD material card shows only the active material name and bar. The bar should fill relative to stored vs. needed stock per floor.
-   - Floating labels above workers should read states such as "Fetching Concrete", "Delivering Material", "Building", or "Resting" and update as orders change.
+## How to test snow effects
+1. Start the stage and let the timer reach 10:00; a snow banner, ❄️ HUD icon, and “SNOW!” head bubble above the player should appear together.
+2. Observe the translucent overlay, falling particles, and thin snow lines on obstacle tops throughout the storm.
+3. After at least 2 minutes of snow, wait for the banner/icon to hide; the next storm should arrive 10 minutes after the previous one ends.
 
-## Gameplay & interaction notes
-- **Controls**: WASD to move, **Space** to interact, Pause/Speed buttons, and worker card buttons to issue Build/Fetch/Rest/Cancel.
-- **Materials & depots**: The player does **not** haul materials in this stage—only coffee. Depots have unlimited supply; Delivery handles all material fetches.
-- **MCS stock**: Each build consumes the full requirement for the active floor’s material. Stock can exceed the requirement and is kept per material type.
-- **Worker behaviour**:
-  - Delivery fetches only the required material for the current floor and carries one unit per trip.
-  - Builder won’t start until enough of the required material is stocked; stamina is consumed on build start.
-  - Rest sends workers to the dorm; they remain hidden while recovering.
-- **Red Bull**: Only the player can collect it. Buff expires automatically after 60s or on restart; the ground is tinted red during the buff, and future spawns are scheduled every 300s of in-game time.
-- **Obstacles**: Rocks/ponds are sparser than previous stages and never sit within 1 tile of any depot.
+## Confirming snow modifiers
+- **Movement slowdown (30%)**: walk before snow to gauge normal speed, then keep moving after “SNOW!” appears; both player and workers should clearly move slower (≈70% of normal). Confirm full speed returns once snow clears.
+- **Build slowdown (10% longer)**: assign the Builder to an in-progress floor. While snowing, the build bar fills noticeably slower; after snow stops, progress resumes at the faster baseline.
+- **Fetch slowdown (10% longer)**: order Delivery to Fetch just before snow starts. Compare pickup/drop timings during the snow window to a clear-weather run; the snowy run should take slightly longer, then normalize afterward.
 
-## Known limitations
-- No audio, snow, or accident/medal systems are present in this stage (those arrive in later stages).
-- Red Bull spawns at open walkable tiles but does not avoid proximity to workers or the player.
+## How to test each sound effect
+- **Fetch**: click **Fetch** for Delivery; listen for the pickup chime at the depot.
+- **Deliver**: when Delivery drops at the MCS, the delivery success jingle plays.
+- **Coffee**: press **Space** at Starbucks to pick up coffee, then hand it to a worker; the coffee cue plays on pickup/delivery.
+- **Red Bull**: collect a Red Bull tile; the energy sting plays as the buff begins.
+- **UI click**: press Pause/Resume, Speed, or any worker action; each click emits the UI sound.
+- **Build hammer (optional)**: while the Builder is actively constructing, a soft hammer loop plays; it should quiet down when they stop.
+
+## Volume sliders
+- Use the compact **Master**, **Music**, and **SFX** sliders (no numeric readout) to adjust loudness; moving any slider immediately updates the mix.
+- The background track pauses as soon as you pause the game and resumes when you unpause. Winning or restarting stops it; restarting begins it again.
+
+## Snow HUD confirmation
+- When snow begins, the HUD weather card highlights the **❄️** icon, the label reads “Snowing,” the “SNOW!” head bubble appears above the player, and the “Snow Active” banner shows.
+- When snow stops, the ❄️ fades out, the label returns to “Clear Skies,” and the banner hides; the head bubble also clears after its brief display.
