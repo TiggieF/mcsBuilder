@@ -6,6 +6,31 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <div id="startMenu" role="dialog" aria-modal="true" aria-labelledby="startTitle" class="start-menu">
+    <div class="start-panel">
+      <h1 id="startTitle">MCS Builder</h1>
+      <div class="difficulty-row" role="group" aria-label="Difficulty">
+        <button type="button" class="difficulty-btn" data-difficulty="easy">Easy</button>
+        <button type="button" class="difficulty-btn active" data-difficulty="normal">Normal</button>
+        <button type="button" class="difficulty-btn" data-difficulty="hard">Hard</button>
+      </div>
+      <div class="start-actions">
+        <button id="startBtn" type="button">Start Project</button>
+        <button id="controlsBtn" type="button">Controls / Instructions</button>
+      </div>
+      <div id="controlsPanel" class="controls-panel" hidden>
+        <p class="controls-title">Controls</p>
+        <ul>
+          <li>Move with WASD</li>
+          <li>Interact with Space</li>
+          <li>Assign worker orders from the Control Panel</li>
+          <li>Pause or adjust speed from the right panel</li>
+        </ul>
+        <p class="controls-title">Goal</p>
+        <p>Deliver materials, build up to floor 10, and finish within medal time limits.</p>
+      </div>
+    </div>
+  </div>
   <div class="hud">
     <div class="hud-item material-card">
       <div class="material-meta">
@@ -106,6 +131,13 @@
     <div class="win-panel">
       <h2 id="winTitle">Construction Complete!</h2>
       <p>Total Time: <span id="winTime">00:00</span></p>
+      <div class="medal-popup" id="medalPopup">
+        <div class="medal-icon" id="medalIcon" aria-hidden="true">🏅</div>
+        <div class="medal-copy">
+          <p class="medal-label" id="medalLabel">No Medal</p>
+          <p class="medal-desc" id="medalDesc">Reach floor 10 to earn a medal.</p>
+        </div>
+      </div>
       <button id="restartBtn" type="button">Restart Project</button>
     </div>
   </div>

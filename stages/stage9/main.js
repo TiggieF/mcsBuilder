@@ -30,6 +30,12 @@ const MATERIAL_PER_FLOOR = 5;
 const BUILD_BASE = 5;
 const BUILD_PER_FLOOR = 5;
 const BUILD_PROGRESS_SLOWDOWN = 1.5;
+const DROP_CHANCE_PER_TILE = 0.1;
+const DROP_OOPS_DURATION = 3;
+const OOPS_BUBBLE_DURATION = 1;
+const CAMERA_SHAKE_DURATION = 0.4;
+const CAMERA_SHAKE_FREQUENCY = 30;
+const CAMERA_SHAKE_MAGNITUDE = 4;
 const PLAYER_INTERACT_COOLDOWN = 0.35;
 const EDGE_MARGIN = 1;
 const RED_BULL_INTERVAL = 300;
@@ -54,6 +60,41 @@ const SNOW_SPEED_MULT = 0.7;
 const SNOW_BUILD_MULT = 1.1;
 const SNOW_FETCH_MULT = 1.1;
 const AUDIO_PATH = '../music/';
+const MEDAL_THRESHOLDS = {
+  gold: 3 * 60 * 60,
+  silver: 4 * 60 * 60,
+  bronze: 5 * 60 * 60
+};
+const DIFFICULTY_CONFIG = {
+  easy: {
+    label: 'Easy',
+    speedMult: 1.1,
+    buildTimeMult: 0.9,
+    dropChanceMult: 0,
+    snowPenalty: -0.05,
+    redBullInterval: RED_BULL_INTERVAL,
+    cameraMagnitude: 2
+  },
+  normal: {
+    label: 'Normal',
+    speedMult: 1,
+    buildTimeMult: 1,
+    dropChanceMult: 1,
+    snowPenalty: 0,
+    redBullInterval: RED_BULL_INTERVAL,
+    cameraMagnitude: 4
+  },
+  hard: {
+    label: 'Hard',
+    speedMult: 0.9,
+    buildTimeMult: 1.1,
+    dropChanceMult: 1.5,
+    snowPenalty: 0.15,
+    redBullInterval: 7 * 60,
+    cameraMagnitude: 6
+  }
+};
+let currentDifficulty = DIFFICULTY_CONFIG.normal;
 const AUDIO_FILES = {
   bgm: 'bgm.mp3',
   fetch: 'fetch.mp3',
@@ -207,7 +248,7 @@ const solidRects = [...zones, ...rockTiles];
 const world = {
   currentMaterial: materialForFloor(1),
   redBullBuff: { active: false, expiresAt: 0 },
-  nextRedBullAt: RED_BULL_INTERVAL,
+  nextRedBullAt: getRedBullInterval(),
   redBullTile: null
 };
 
@@ -237,6 +278,11 @@ const snowHud = document.getElementById('snowHud');
 const snowLabel = document.getElementById('snowLabel');
 const snowIcon = document.getElementById('snowIcon');
 const snowBanner = document.getElementById('snowBanner');
+const startMenu = document.getElementById('startMenu');
+const startBtn = document.getElementById('startBtn');
+const controlsBtn = document.getElementById('controlsBtn');
+const controlsPanel = document.getElementById('controlsPanel');
+const difficultyButtons = Array.from(document.querySelectorAll('.difficulty-btn'));
 // ===== HUD + panel references =====
 const pauseBtn = document.getElementById('pauseBtn');
 const speedBtn = document.getElementById('speedBtn');
@@ -249,6 +295,10 @@ const bubble = document.getElementById('textBubble');
 const winOverlay = document.getElementById('winOverlay');
 const winTimeEl = document.getElementById('winTime');
 const restartBtn = document.getElementById('restartBtn');
+const medalPopup = document.getElementById('medalPopup');
+const medalLabel = document.getElementById('medalLabel');
+const medalDesc = document.getElementById('medalDesc');
+const medalIcon = document.getElementById('medalIcon');
 const workerCards = Array.from(document.querySelectorAll('.worker-card'));
 const masterVolume = document.getElementById('masterVolume');
 const musicVolume = document.getElementById('musicVolume');
@@ -256,6 +306,8 @@ const sfxVolume = document.getElementById('sfxVolume');
 const audio = createAudioSystem();
 bubble.style.display = 'none';
 updateSpeedLabel();
+let gameStarted = false;
+const cameraShake = { elapsed: 0, duration: 0, magnitude: 0, frequency: CAMERA_SHAKE_FREQUENCY };
 
 // ----- Geometry helpers -----
 function rectsOverlap(a, b) {
@@ -514,6 +566,25 @@ function formatTime(seconds) {
   const mins = Math.floor(seconds / 60).toString().padStart(2, '0');
   const secs = Math.floor(seconds % 60).toString().padStart(2, '0');
   return `${mins}:${secs}`;
+}
+
+function getRedBullInterval() {
+  return currentDifficulty?.redBullInterval || RED_BULL_INTERVAL;
+}
+
+function getDropChancePerTile() {
+  return DROP_CHANCE_PER_TILE * (currentDifficulty?.dropChanceMult ?? 1);
+}
+
+function getSnowSpeedPenaltyMultiplier() {
+  const basePenalty = 1 - SNOW_SPEED_MULT;
+  const adjusted = clamp(basePenalty + (currentDifficulty?.snowPenalty ?? 0), 0, 0.95);
+  return 1 - adjusted;
+}
+
+function getSnowTaskMultiplier(basePenalty) {
+  const adjusted = clamp(basePenalty + (currentDifficulty?.snowPenalty ?? 0), 0, 1.25);
+  return 1 + adjusted;
 }
 
 function logStateTransition(worker, event, fromState, toState) {
@@ -1224,7 +1295,7 @@ function createInitialState(playerCell, blocked) {
   world.currentMaterial = materialForFloor(1);
   world.redBullBuff = { active: false, expiresAt: 0 };
   world.redBullTile = null;
-  world.nextRedBullAt = RED_BULL_INTERVAL;
+  world.nextRedBullAt = getRedBullInterval();
   return {
     time: { elapsed: 0, speed: 1 },
     progress: { floorsBuilt: 0, totalFloors: MAX_FLOORS },
@@ -1282,7 +1353,11 @@ function createWorker(id, role, name, cell, idleColor, activeColor, accentColor)
     buildReserved: false,
     restAnchor: null,
     taskTimer: 0,
-    buildSoundTimer: 0
+    buildSoundTimer: 0,
+    oopsTimer: 0,
+    oopsBubbleTimer: 0,
+    resumeAfterOops: false,
+    lastCellKey: cellKey(cell)
   };
 }
 
@@ -1337,6 +1412,9 @@ function handleMovement(dt) {
 function updateWorkers(dt) {
   const simDt = gameComplete ? 0 : dt * state.time.speed;
   workers.forEach(worker => {
+    if (worker.oopsBubbleTimer > 0) {
+      worker.oopsBubbleTimer = Math.max(0, worker.oopsBubbleTimer - dt);
+    }
     worker.pathReplanTimer += simDt;
     if (worker.pathFailureCooldown > 0) {
       worker.pathFailureCooldown = Math.max(0, worker.pathFailureCooldown - simDt);
@@ -1387,6 +1465,14 @@ function updateWorkers(dt) {
 function processWorkerOrder(worker, dt) {
   if (gameComplete) {
     worker.orderStarted = false;
+    return;
+  }
+  if (worker.oopsTimer > 0) {
+    worker.oopsTimer = Math.max(0, worker.oopsTimer - dt);
+    if (worker.oopsTimer <= 0 && worker.resumeAfterOops && worker.order === 'idle') {
+      worker.resumeAfterOops = false;
+      setWorkerOrder(worker, 'deliver', `${worker.name} shakes it off and heads back to the depot.`);
+    }
     return;
   }
   if (worker.order === 'rest') {
@@ -1651,6 +1737,31 @@ function completeFloor() {
   showBubble(`Floor ${finished} complete!`);
 }
 
+function getMedalForTime(totalSeconds) {
+  if (totalSeconds <= MEDAL_THRESHOLDS.gold) {
+    return { tier: 'gold', label: 'Gold Medal', color: '#FFD700', icon: '🥇', desc: 'Finished in 3 hours or less.' };
+  }
+  if (totalSeconds <= MEDAL_THRESHOLDS.silver) {
+    return { tier: 'silver', label: 'Silver Medal', color: '#C0C0C0', icon: '🥈', desc: 'Finished in 4 hours or less.' };
+  }
+  if (totalSeconds <= MEDAL_THRESHOLDS.bronze) {
+    return { tier: 'bronze', label: 'Bronze Medal', color: '#CD7F32', icon: '🥉', desc: 'Finished in 5 hours or less.' };
+  }
+  return { tier: 'fail', label: 'No Medal', color: '#ff6b6b', icon: '🏅', desc: 'Over 5 hours. Try again!' };
+}
+
+function updateMedalDisplay(medal) {
+  if (!medalPopup || !medalLabel || !medalDesc || !medalIcon) {
+    return;
+  }
+  medalPopup.classList.remove('medal-gold', 'medal-silver', 'medal-bronze', 'medal-fail');
+  medalPopup.classList.add(`medal-${medal.tier}`);
+  medalLabel.textContent = medal.label;
+  medalDesc.textContent = medal.desc;
+  medalIcon.textContent = medal.icon;
+  medalLabel.style.color = medal.color;
+}
+
 function triggerWin(finalFloor) {
   if (gameComplete) {
     return;
@@ -1667,6 +1778,8 @@ function triggerWin(finalFloor) {
   if (winTimeEl) {
     winTimeEl.textContent = formatTime(finishTime);
   }
+  const medal = getMedalForTime(finishTime);
+  updateMedalDisplay(medal);
   if (pauseBtn) {
     pauseBtn.textContent = 'Paused';
     pauseBtn.disabled = true;
@@ -1682,7 +1795,8 @@ function triggerWin(finalFloor) {
   showBubble(`Campus ready in ${formatTime(finishTime)}!`);
 }
 
-function restartGame() {
+function restartGame(options = {}) {
+  const { silent = false, startMusic = true } = options;
   if (bubbleTimeout) {
     clearTimeout(bubbleTimeout);
     bubbleTimeout = null;
@@ -1704,6 +1818,7 @@ function restartGame() {
   if (winTimeEl) {
     winTimeEl.textContent = '00:00';
   }
+  updateMedalDisplay({ tier: 'fail', label: 'Medal Pending', color: '#f5f5f8', icon: '🏅', desc: 'Reach floor 10 to earn a medal.' });
   if (pauseBtn) {
     pauseBtn.disabled = false;
     pauseBtn.textContent = 'Pause';
@@ -1713,8 +1828,12 @@ function restartGame() {
   }
   refreshMcsZoneTexture();
   statusEl.textContent = 'Project reset. Ready for another build!';
-  showBubble('Fresh blueprint loaded. Let\'s build again!');
-  audio.playMusic();
+  if (!silent) {
+    showBubble('Fresh blueprint loaded. Let\'s build again!');
+  }
+  if (startMusic) {
+    audio.playMusic();
+  }
   refreshWorkerCards();
   updateHUD();
 }
@@ -1779,6 +1898,74 @@ function moveWorker(worker, dx, dy) {
   worker.x = clamp(worker.x, 2, canvas.width - worker.width - 2);
   worker.y = clamp(worker.y, 2, canvas.height - worker.height - 2);
   return moved;
+}
+
+function isWorkerCarryingMaterial(worker) {
+  return !!worker && worker.inv > 0 && !!worker.cargo;
+}
+
+function handleWorkerTileChange(worker, fromCell, toCell) {
+  worker.lastCellKey = cellKey(toCell);
+  if (!gameStarted || gameComplete) {
+    return;
+  }
+  if (!isWorkerCarryingMaterial(worker)) {
+    return;
+  }
+  const chance = getDropChancePerTile();
+  if (chance > 0 && Math.random() < chance) {
+    triggerDropAccident(worker);
+  }
+}
+
+function triggerCameraShake() {
+  cameraShake.elapsed = 0;
+  cameraShake.duration = CAMERA_SHAKE_DURATION;
+  cameraShake.magnitude = currentDifficulty?.cameraMagnitude || CAMERA_SHAKE_MAGNITUDE;
+  cameraShake.frequency = CAMERA_SHAKE_FREQUENCY;
+}
+
+function triggerDropAccident(worker) {
+  if (!worker) return;
+  worker.inv = 0;
+  worker.cargo = null;
+  worker.oopsTimer = DROP_OOPS_DURATION;
+  worker.oopsBubbleTimer = OOPS_BUBBLE_DURATION;
+  worker.resumeAfterOops = worker.order === 'deliver';
+  worker.order = 'idle';
+  worker.activity = 'oops';
+  worker.orderStarted = false;
+  setWorkerDestination(worker, null);
+  const message = `${worker.name} dropped the materials!`;
+  statusEl.textContent = message;
+  showBubble(message);
+  audio.playSfx('oops', { position: entityCenter(worker), volume: 0.9 });
+  triggerCameraShake();
+  refreshWorkerCards();
+}
+
+function updateCameraShake(dt) {
+  if (cameraShake.duration <= 0) {
+    return;
+  }
+  cameraShake.elapsed += dt;
+  if (cameraShake.elapsed >= cameraShake.duration) {
+    cameraShake.duration = 0;
+  }
+}
+
+function getCameraShakeOffset() {
+  if (cameraShake.duration <= 0) {
+    return { x: 0, y: 0 };
+  }
+  const progress = Math.min(1, cameraShake.elapsed / cameraShake.duration);
+  const decay = 1 - progress;
+  const angle = cameraShake.elapsed * cameraShake.frequency * Math.PI * 2;
+  const magnitude = cameraShake.magnitude * decay;
+  return {
+    x: Math.sin(angle) * magnitude,
+    y: Math.cos(angle * 1.3) * magnitude
+  };
 }
 
 function moveTowardPoint(worker, target, speed, dt) {
@@ -1902,6 +2089,8 @@ function moveWorkerToward(worker, target, speed, dt) {
     return false;
   }
 
+  const beforeCell = pointToCell(workerCenter(worker));
+
   const pathReady = ensureWorkerPath(worker, target);
   if (!pathReady) {
     return false;
@@ -1926,9 +2115,17 @@ function moveWorkerToward(worker, target, speed, dt) {
     worker.pathReplanTimer = 0;
     worker.pathBlocked = false;
     worker.pathFailureCooldown = 0;
+    const afterCell = pointToCell(workerCenter(worker));
+    if (!cellsEqual(beforeCell, afterCell)) {
+      handleWorkerTileChange(worker, beforeCell, afterCell);
+    }
     return true;
   }
 
+  const afterCell = pointToCell(workerCenter(worker));
+  if (!cellsEqual(beforeCell, afterCell)) {
+    handleWorkerTileChange(worker, beforeCell, afterCell);
+  }
   return false;
 }
 
@@ -2063,24 +2260,26 @@ function isRedBullActive() {
 
 function getPlayerSpeedMultiplier() {
   let mult = isRedBullActive() ? RED_BULL_PLAYER_MULT : 1;
+  mult *= currentDifficulty?.speedMult || 1;
   if (isSnowActive()) {
-    mult *= SNOW_SPEED_MULT;
+    mult *= getSnowSpeedPenaltyMultiplier();
   }
   return mult;
 }
 
 function getWorkerSpeedMultiplier() {
   let mult = isRedBullActive() ? RED_BULL_WORKER_MULT : 1;
+  mult *= currentDifficulty?.speedMult || 1;
   if (isSnowActive()) {
-    mult *= SNOW_SPEED_MULT;
+    mult *= getSnowSpeedPenaltyMultiplier();
   }
   return mult;
 }
 
 function getBuildTimeMultiplier() {
-  let mult = isRedBullActive() ? RED_BULL_BUILD_MULT : 1;
+  let mult = (isRedBullActive() ? RED_BULL_BUILD_MULT : 1) * (currentDifficulty?.buildTimeMult || 1);
   if (isSnowActive()) {
-    mult *= SNOW_BUILD_MULT;
+    mult *= getSnowTaskMultiplier(SNOW_BUILD_MULT - 1);
   }
   return mult;
 }
@@ -2088,7 +2287,7 @@ function getBuildTimeMultiplier() {
 function getFetchTimeMultiplier() {
   let mult = 1;
   if (isSnowActive()) {
-    mult *= SNOW_FETCH_MULT;
+    mult *= getSnowTaskMultiplier(SNOW_FETCH_MULT - 1);
   }
   return mult;
 }
@@ -2288,6 +2487,13 @@ function drawWorkers() {
     ctx.fillStyle = infoBg;
     ctx.fillRect(worker.x - 20, bodyY - 64, worker.width + 40, 58);
 
+    if (worker.oopsBubbleTimer > 0) {
+      ctx.fillStyle = '#2c1b1b';
+      ctx.fillRect(worker.x - 8, bodyY - 82, worker.width + 16, 16);
+      ctx.fillStyle = '#ffb3ba';
+      ctx.fillText('Oops!', worker.x + worker.width / 2, bodyY - 70);
+    }
+
     ctx.textAlign = 'center';
     ctx.fillStyle = stateColor;
     ctx.fillText(getWorkerFloatingLabel(worker), worker.x + worker.width / 2, bodyY - 48);
@@ -2300,7 +2506,7 @@ function drawWorkers() {
 
     ctx.fillStyle = stateColor;
     const staminaText = `${worker.stamina.toFixed(1)}/${getWorkerMaxStamina(worker)}`;
-    const stateLabel = formatStateLabel(worker.stateMachine.state);
+    const stateLabel = worker.oopsTimer > 0 ? 'Oops' : formatStateLabel(worker.stateMachine.state);
     ctx.fillText(`${stateLabel} · ${staminaText}`, worker.x + worker.width / 2, bodyY - 6);
   });
   ctx.textAlign = 'left';
@@ -2367,6 +2573,9 @@ function drawPlayer() {
 }
 
 function drawScene() {
+  ctx.save();
+  const shakeOffset = getCameraShakeOffset();
+  ctx.translate(shakeOffset.x, shakeOffset.y);
   if (textures.grass) {
     ctx.fillStyle = textures.grass;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -2385,9 +2594,15 @@ function drawScene() {
   drawWorkers();
   drawPlayer();
   drawSnow();
+  ctx.restore();
 }
 
 function update(dt) {
+  if (!gameStarted) {
+    updateSnow(dt);
+    updateHUD();
+    return;
+  }
   if (!isPaused) {
     if (!gameComplete) {
       handleMovement(dt);
@@ -2403,6 +2618,7 @@ function update(dt) {
     }
     updateWorkers(dt);
   }
+  updateCameraShake(dt);
   updateSnow(dt);
   updateHUD();
 }
@@ -2456,9 +2672,9 @@ function spawnRedBullTile() {
   const cell = findRedBullSpawnCell();
   if (cell) {
     world.redBullTile = cell;
-    world.nextRedBullAt = state.time.elapsed + RED_BULL_INTERVAL;
+    world.nextRedBullAt = state.time.elapsed + getRedBullInterval();
   } else {
-    world.nextRedBullAt = state.time.elapsed + RED_BULL_INTERVAL;
+    world.nextRedBullAt = state.time.elapsed + getRedBullInterval();
   }
 }
 
@@ -2478,7 +2694,7 @@ function findRedBullSpawnCell() {
 function applyRedBullBuff() {
   world.redBullBuff = { active: true, expiresAt: state.time.elapsed + RED_BULL_DURATION };
   world.redBullTile = null;
-  world.nextRedBullAt = state.time.elapsed + RED_BULL_INTERVAL;
+  world.nextRedBullAt = state.time.elapsed + getRedBullInterval();
   const message = 'Red Bull collected! Everyone speeds up.';
   statusEl.textContent = message;
   showBubble(message);
@@ -2672,7 +2888,7 @@ function refreshWorkerCards() {
     }
     const stateEl = card.querySelector('.summary .state');
     if (stateEl) {
-      stateEl.textContent = worker.stateMachine.state;
+      stateEl.textContent = worker.oopsTimer > 0 ? 'oops' : worker.stateMachine.state;
     }
     const buttons = card.querySelectorAll('button[data-action]');
     buttons.forEach(btn => {
@@ -2710,6 +2926,9 @@ function formatStateLabel(state) {
 function getWorkerFloatingLabel(worker) {
   if (!worker) {
     return 'Idle';
+  }
+  if (worker.oopsTimer > 0) {
+    return 'Oops!';
   }
   if (worker.order === 'rest' || worker.activity === 'resting') {
     return 'Resting';
@@ -2782,6 +3001,8 @@ function setWorkerOrder(worker, newOrder, messageOverride) {
 
   const previousOrder = worker.order;
   worker.order = newOrder;
+  worker.resumeAfterOops = false;
+  worker.oopsTimer = 0;
 
   if (previousOrder !== newOrder) {
     if (newOrder === 'build') {
@@ -2862,6 +3083,37 @@ function positionBubble() {
   bubble.style.top = `${pageY}px`;
 }
 
+function setDifficulty(level) {
+  const config = DIFFICULTY_CONFIG[level] || DIFFICULTY_CONFIG.normal;
+  currentDifficulty = config;
+  difficultyButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.difficulty === level));
+  statusEl.textContent = `${config.label} difficulty selected.`;
+  restartGame({ silent: true, startMusic: false });
+  gameStarted = false;
+}
+
+function startGame() {
+  if (gameStarted) {
+    return;
+  }
+  playUiClick();
+  restartGame({ silent: true, startMusic: false });
+  gameStarted = true;
+  isPaused = false;
+  if (startMenu) {
+    startMenu.classList.add('hidden');
+  }
+  audio.playMusic();
+  statusEl.textContent = `${currentDifficulty.label} project underway.`;
+}
+
+function toggleControlsPanel() {
+  if (!controlsPanel) return;
+  const isHidden = controlsPanel.hasAttribute('hidden');
+  controlsPanel.toggleAttribute('hidden');
+  controlsBtn?.classList.toggle('active', isHidden);
+}
+
 document.addEventListener('keydown', (event) => {
   if (event.code === 'Space') {
     event.preventDefault();
@@ -2878,6 +3130,18 @@ document.addEventListener('keyup', (event) => {
 window.addEventListener('resize', positionBubble);
 window.addEventListener('scroll', positionBubble);
 
+difficultyButtons.forEach(btn => {
+  btn.addEventListener('click', () => { primeAudio(); setDifficulty(btn.dataset.difficulty); });
+});
+
+if (startBtn) {
+  startBtn.addEventListener('click', () => { primeAudio(); startGame(); });
+}
+
+if (controlsBtn) {
+  controlsBtn.addEventListener('click', () => { primeAudio(); toggleControlsPanel(); });
+}
+
 if (pauseBtn) {
   pauseBtn.addEventListener('click', () => { primeAudio(); togglePause(); });
 }
@@ -2885,7 +3149,15 @@ if (speedBtn) {
   speedBtn.addEventListener('click', () => { primeAudio(); cycleSpeed(); });
 }
 if (restartBtn) {
-  restartBtn.addEventListener('click', () => { primeAudio(); playUiClick(); restartGame(); });
+  restartBtn.addEventListener('click', () => {
+    primeAudio();
+    playUiClick();
+    gameStarted = false;
+    restartGame({ silent: true, startMusic: false });
+    if (startMenu) {
+      startMenu.classList.remove('hidden');
+    }
+  });
 }
 
 workerCards.forEach(card => {
@@ -2904,6 +3176,7 @@ syncVolumeUI();
 document.addEventListener('click', primeAudio, { once: true });
 document.addEventListener('keydown', primeAudio, { once: true });
 
+setDifficulty('normal');
 updateHUD();
 refreshWorkerCards();
 drawScene();
