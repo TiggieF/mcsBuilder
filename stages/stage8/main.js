@@ -37,6 +37,33 @@ const RED_BULL_DURATION = 60;
 const RED_BULL_PLAYER_MULT = 2;
 const RED_BULL_WORKER_MULT = 1.3;
 const RED_BULL_BUILD_MULT = 0.9;
+const SNOW_MIN_PARTICLES = 320;
+const SNOW_MAX_PARTICLES = 480;
+const SNOW_OVERLAY_ALPHA = 0.08;
+const SNOW_START_MIN = 180;
+const SNOW_START_MAX = 420;
+const SNOW_BREAK_MIN = 160;
+const SNOW_BREAK_MAX = 320;
+const SNOW_MIN_DURATION = 120;
+const SNOW_WIND_STRENGTH = 18;
+const SNOW_SWAY_SPEED = 0.7;
+const SNOW_FALL_MIN = 28;
+const SNOW_FALL_MAX = 70;
+const SNOW_SPEED_MULT = 0.9;
+const SNOW_BUILD_MULT = 1.1;
+const SNOW_FETCH_MULT = 1.1;
+const AUDIO_PATH = '../music/';
+const AUDIO_FILES = {
+  bgm: 'bgm.mp3',
+  fetch: 'fetch.mp3',
+  deliverySuccess: 'deliverySuccess.mp3',
+  coffee: 'coffee.mp3',
+  redbull: 'redbull.mp3',
+  uiclick: 'uiclick.mp3',
+  oops: 'oops.mp3',
+  building: 'buildingSound.mp3'
+};
+const DEFAULT_VOLUME = { master: 0.85, music: 0.7, sfx: 0.85 };
 
 const MATERIAL_RULES = [
   { name: 'concrete', floors: [1, 3], color: '#9c9c9c' },
@@ -142,6 +169,18 @@ function buildTimeFor(floor) {
   return BUILD_BASE + BUILD_PER_FLOOR * (floor - 1);
 }
 
+function createSnowState() {
+  return {
+    active: false,
+    particles: [],
+    nextEventAt: Math.random() < 0.5 ? 0 : getRandomInt(SNOW_START_MIN, SNOW_START_MAX),
+    minActiveUntil: 0,
+    endAt: 0,
+    overlayAlpha: 0,
+    windPhase: Math.random() * Math.PI * 2
+  };
+}
+
 // ===== World layout =====
 const zones = generateZones();
 const zoneEdgeMap = zones.map(getZoneEdgeCells);
@@ -171,6 +210,8 @@ const world = {
   redBullTile: null
 };
 
+const snow = createSnowState();
+
 let state = createInitialState(spawnCell, blockedCells);
 let player = state.player;
 let workers = state.workers;
@@ -191,6 +232,10 @@ const hudFloor = document.getElementById('hud-floor');
 const hudTime = document.getElementById('hud-time');
 const hudFloors = document.getElementById('hud-floors');
 const hudDelivery = document.getElementById('hud-delivery');
+const snowHud = document.getElementById('snowHud');
+const snowLabel = document.getElementById('snowLabel');
+const snowIcon = document.getElementById('snowIcon');
+const snowBanner = document.getElementById('snowBanner');
 // ===== HUD + panel references =====
 const pauseBtn = document.getElementById('pauseBtn');
 const speedBtn = document.getElementById('speedBtn');
@@ -204,6 +249,16 @@ const winOverlay = document.getElementById('winOverlay');
 const winTimeEl = document.getElementById('winTime');
 const restartBtn = document.getElementById('restartBtn');
 const workerCards = Array.from(document.querySelectorAll('.worker-card'));
+const masterVolume = document.getElementById('masterVolume');
+const musicVolume = document.getElementById('musicVolume');
+const sfxVolume = document.getElementById('sfxVolume');
+const masterValue = document.getElementById('masterValue');
+const musicValue = document.getElementById('musicValue');
+const sfxValue = document.getElementById('sfxValue');
+const muteAll = document.getElementById('muteAll');
+const muteMusic = document.getElementById('muteMusic');
+const muteSfx = document.getElementById('muteSfx');
+const audio = createAudioSystem();
 bubble.style.display = 'none';
 updateSpeedLabel();
 
@@ -398,6 +453,13 @@ function getCollisionRects(options = {}) {
   return rects;
 }
 
+function entityCenter(entity) {
+  return {
+    x: entity.x + entity.width / 2,
+    y: entity.y + entity.height / 2
+  };
+}
+
 function getZoneInfo(name) {
   return zoneDirectory[name] || null;
 }
@@ -498,6 +560,166 @@ function updateHUD() {
 
   const timeDisplay = gameComplete ? finishTime : state.time.elapsed;
   hudTime.textContent = formatTime(timeDisplay);
+
+  const snowActive = isSnowActive();
+  if (snowHud) {
+    snowHud.classList.toggle('snowy', snowActive);
+  }
+  if (snowLabel) {
+    snowLabel.textContent = snowActive ? 'Snowing' : 'Clear Skies';
+  }
+}
+
+function createAudioSystem() {
+  const volumes = { ...DEFAULT_VOLUME };
+  const mutes = { master: false, music: false, sfx: false };
+  const sounds = {};
+  let musicTrack = null;
+
+  Object.entries(AUDIO_FILES).forEach(([key, file]) => {
+    const audio = new Audio(`${AUDIO_PATH}${file}`);
+    audio.preload = 'auto';
+    if (key === 'bgm') {
+      audio.loop = true;
+      musicTrack = audio;
+    }
+    sounds[key] = audio;
+  });
+
+  function computeVolume(type, base = 1) {
+    if (mutes.master) return 0;
+    if (type === 'music' && mutes.music) return 0;
+    if (type === 'sfx' && mutes.sfx) return 0;
+    const bucket = type === 'music' ? volumes.music : volumes.sfx;
+    return clamp(base * volumes.master * bucket, 0, 1);
+  }
+
+  function spatialScale(position) {
+    if (!position) return 1;
+    const center = { x: canvas.width / 2, y: canvas.height / 2 };
+    const dist = Math.hypot(position.x - center.x, position.y - center.y);
+    const maxDist = Math.hypot(canvas.width / 2, canvas.height / 2);
+    return clamp(1 - dist / maxDist, 0.25, 1);
+  }
+
+  function playMusic() {
+    if (!musicTrack) return;
+    musicTrack.volume = computeVolume('music', 0.55);
+    musicTrack.play().catch(() => {});
+  }
+
+  function stopMusic() {
+    if (musicTrack) {
+      musicTrack.pause();
+    }
+  }
+
+  function playSfx(key, options = {}) {
+    const baseAudio = sounds[key];
+    if (!baseAudio) return null;
+    const clone = baseAudio.cloneNode(true);
+    const volume = options.volume ?? 1;
+    const spatial = spatialScale(options.position);
+    clone.volume = computeVolume('sfx', volume * spatial);
+    if (typeof options.loop === 'boolean') {
+      clone.loop = options.loop;
+    }
+    clone.play().catch(() => {});
+    return clone;
+  }
+
+  function setVolume(kind, value) {
+    volumes[kind] = clamp(value, 0, 1);
+    refresh();
+  }
+
+  function setMute(kind, value) {
+    mutes[kind] = value;
+    refresh();
+  }
+
+  function refresh() {
+    if (musicTrack) {
+      musicTrack.volume = computeVolume('music', 0.55);
+      if (!musicTrack.paused && computeVolume('music', 0.55) === 0) {
+        musicTrack.pause();
+      }
+      if (musicTrack.paused && computeVolume('music', 0.55) > 0) {
+        musicTrack.play().catch(() => {});
+      }
+    }
+  }
+
+  return { playMusic, playSfx, setVolume, setMute, refresh, stopMusic, volumes, mutes };
+}
+
+function syncVolumeUI() {
+  if (masterVolume && masterValue) {
+    masterVolume.value = audio.volumes.master;
+    masterValue.textContent = `${Math.round(audio.volumes.master * 100)}%`;
+  }
+  if (musicVolume && musicValue) {
+    musicVolume.value = audio.volumes.music;
+    musicValue.textContent = `${Math.round(audio.volumes.music * 100)}%`;
+  }
+  if (sfxVolume && sfxValue) {
+    sfxVolume.value = audio.volumes.sfx;
+    sfxValue.textContent = `${Math.round(audio.volumes.sfx * 100)}%`;
+  }
+  if (muteAll) muteAll.checked = audio.mutes.master;
+  if (muteMusic) muteMusic.checked = audio.mutes.music;
+  if (muteSfx) muteSfx.checked = audio.mutes.sfx;
+}
+
+let audioPrimed = false;
+function primeAudio() {
+  if (audioPrimed) return;
+  audioPrimed = true;
+  audio.refresh();
+  audio.playMusic();
+}
+
+function playUiClick() {
+  audio.playSfx('uiclick', { volume: 0.35 });
+}
+
+function bindAudioUI() {
+  if (masterVolume) {
+    masterVolume.addEventListener('input', () => {
+      audio.setVolume('master', parseFloat(masterVolume.value));
+      syncVolumeUI();
+    });
+  }
+  if (musicVolume) {
+    musicVolume.addEventListener('input', () => {
+      audio.setVolume('music', parseFloat(musicVolume.value));
+      syncVolumeUI();
+    });
+  }
+  if (sfxVolume) {
+    sfxVolume.addEventListener('input', () => {
+      audio.setVolume('sfx', parseFloat(sfxVolume.value));
+      syncVolumeUI();
+    });
+  }
+  if (muteAll) {
+    muteAll.addEventListener('change', () => {
+      audio.setMute('master', muteAll.checked);
+      syncVolumeUI();
+    });
+  }
+  if (muteMusic) {
+    muteMusic.addEventListener('change', () => {
+      audio.setMute('music', muteMusic.checked);
+      syncVolumeUI();
+    });
+  }
+  if (muteSfx) {
+    muteSfx.addEventListener('change', () => {
+      audio.setMute('sfx', muteSfx.checked);
+      syncVolumeUI();
+    });
+  }
 }
 
 function createGrassPattern(primary, secondary, accent) {
@@ -840,7 +1062,7 @@ function withinGrid(col, row) {
 function generateRocks(zones, startCell, zoneEdgeMap, forbiddenCells = new Set()) {
   const occupancy = createBlockedSetFromZones(zones);
   const rocks = [];
-  const rockCount = getRandomInt(7, 12);
+  const rockCount = getRandomInt(8, 13);
   const shapeTypes = ['rectangle', 'square', 'circle'];
 
   for (let i = 0; i < rockCount; i++) {
@@ -1094,7 +1316,8 @@ function createWorker(id, role, name, cell, idleColor, activeColor, accentColor)
     visible: true,
     buildReserved: false,
     restAnchor: null,
-    taskTimer: 0
+    taskTimer: 0,
+    buildSoundTimer: 0
   };
 }
 
@@ -1268,6 +1491,11 @@ function handleBuilder(worker, dt) {
       setWorkerDestination(worker, approach);
       return;
     }
+    worker.buildSoundTimer = Math.max(0, worker.buildSoundTimer - dt);
+    if (worker.buildSoundTimer <= 0) {
+      audio.playSfx('building', { position: entityCenter(worker), volume: 0.35 });
+      worker.buildSoundTimer = 1.1;
+    }
     const buildMultiplier = getBuildTimeMultiplier();
     const progressGain = dt / (state.floor.buildTime * BUILD_PROGRESS_SLOWDOWN * buildMultiplier);
     state.floor.progress = Math.min(1, state.floor.progress + progressGain);
@@ -1308,13 +1536,15 @@ function handleDelivery(worker, dt) {
       worker.activity = 'loading';
       worker.taskTimer = 0;
       setWorkerDestination(worker, null);
+      audio.playSfx('fetch', { position: depotApproach, volume: 0.7 });
     }
     return;
   }
 
   if (worker.activity === 'loading') {
     worker.taskTimer += dt;
-    if (worker.taskTimer >= DELIVERY_LOAD_TIME) {
+    const loadDuration = DELIVERY_LOAD_TIME * getFetchTimeMultiplier();
+    if (worker.taskTimer >= loadDuration) {
       worker.taskTimer = 0;
       const remaining = Math.max(0, state.floor.need - (state.stock[requiredMaterial] || 0));
       if (remaining <= 0 && (!worker.cargo || worker.cargo !== requiredMaterial)) {
@@ -1343,7 +1573,8 @@ function handleDelivery(worker, dt) {
 
   if (worker.activity === 'delivering') {
     worker.taskTimer += dt;
-    if (worker.taskTimer >= DELIVERY_DROP_TIME) {
+    const dropDuration = DELIVERY_DROP_TIME * getFetchTimeMultiplier();
+    if (worker.taskTimer >= dropDuration) {
       worker.taskTimer = 0;
       if (worker.inv <= 0 || !worker.cargo) {
         worker.activity = 'toDepot';
@@ -1358,6 +1589,7 @@ function handleDelivery(worker, dt) {
       worker.stateMachine.transition('dropComplete', worker);
       worker.stamina = Math.max(0, worker.stamina - DELIVERY_TRIP_COST);
       statusEl.textContent = `${worker.name} delivered ${delivered} ${dropMaterial.toLowerCase()}.`;
+      audio.playSfx('deliverySuccess', { position: mcsApproach, volume: 0.85 });
       if (worker.stamina <= 0) {
         setWorkerOrder(worker, 'rest', `${worker.name} is exhausted and heads to the dorm.`);
         return;
@@ -1492,6 +1724,7 @@ function restartGame() {
   state = createInitialState(spawnCell, blockedCells);
   player = state.player;
   workers = state.workers;
+  resetSnow();
   state.time.speed = speedOptions[speedIndex];
   updateSpeedLabel();
   finishTime = 0;
@@ -1748,20 +1981,147 @@ function shadeColor(hex, percent) {
   return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
 }
 
+function isSnowActive() {
+  return snow.active;
+}
+
+function startSnow() {
+  snow.active = true;
+  snow.minActiveUntil = state.time.elapsed + SNOW_MIN_DURATION;
+  snow.endAt = snow.minActiveUntil + getRandomInt(40, 140);
+  snow.windPhase = Math.random() * Math.PI * 2;
+  snow.particles = createSnowParticles(getRandomInt(SNOW_MIN_PARTICLES, SNOW_MAX_PARTICLES));
+  toggleSnowBanner(true);
+}
+
+function stopSnow() {
+  snow.active = false;
+  snow.nextEventAt = state.time.elapsed + getRandomInt(SNOW_BREAK_MIN, SNOW_BREAK_MAX);
+  toggleSnowBanner(false);
+}
+
+function resetSnow() {
+  snow.active = false;
+  snow.particles = [];
+  snow.overlayAlpha = 0;
+  snow.minActiveUntil = 0;
+  snow.endAt = 0;
+  snow.nextEventAt = Math.random() < 0.5 ? 0 : getRandomInt(SNOW_START_MIN, SNOW_START_MAX);
+  toggleSnowBanner(false);
+}
+
+function createSnowParticles(count) {
+  const particles = [];
+  for (let i = 0; i < count; i++) {
+    particles.push({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      speed: getRandomInt(SNOW_FALL_MIN, SNOW_FALL_MAX) / 12,
+      radius: Math.random() * 1.8 + 0.8,
+      drift: (Math.random() - 0.5) * 10,
+      sway: Math.random() * Math.PI * 2
+    });
+  }
+  return particles;
+}
+
+function updateSnow(dt) {
+  if (!isPaused) {
+    if (!gameComplete && !snow.active && state.time.elapsed >= snow.nextEventAt) {
+      startSnow();
+    }
+    if (snow.active && state.time.elapsed >= snow.minActiveUntil && state.time.elapsed >= snow.endAt) {
+      stopSnow();
+    }
+  }
+
+  const targetAlpha = snow.active ? SNOW_OVERLAY_ALPHA : 0;
+  snow.overlayAlpha += (targetAlpha - snow.overlayAlpha) * Math.min(1, dt * 3);
+
+  if (snow.particles.length === 0 && snow.active) {
+    snow.particles = createSnowParticles(getRandomInt(SNOW_MIN_PARTICLES, SNOW_MAX_PARTICLES));
+  }
+
+  const wind = Math.sin((state.time.elapsed + snow.windPhase) * SNOW_SWAY_SPEED) * SNOW_WIND_STRENGTH;
+  snow.particles.forEach(p => {
+    p.sway += dt;
+    p.x += (p.drift + wind * 0.06 + Math.sin(p.sway * 2) * 4) * dt;
+    p.y += p.speed * (0.8 + Math.sin(p.sway) * 0.15);
+    if (p.y > canvas.height + 6) {
+      p.y = -6;
+      p.x = Math.random() * canvas.width;
+    }
+    if (p.x < -6) p.x = canvas.width + 6;
+    if (p.x > canvas.width + 6) p.x = -6;
+  });
+}
+
+function drawSnow() {
+  if (!snow.active && snow.overlayAlpha < 0.01) {
+    return;
+  }
+  if (snow.overlayAlpha > 0.001) {
+    ctx.save();
+    ctx.fillStyle = `rgba(255,255,255,${snow.overlayAlpha})`;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = `rgba(255,255,255,${snow.overlayAlpha * 1.2})`;
+    rockTiles.forEach(tile => {
+      ctx.fillRect(tile.x, tile.y, tile.width, 3);
+    });
+    ctx.restore();
+  }
+  if (!snow.particles.length) return;
+  ctx.save();
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+  snow.particles.forEach(p => {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ctx.restore();
+}
+
+function toggleSnowBanner(show) {
+  if (snowBanner) {
+    snowBanner.classList.toggle('show', show);
+  }
+  document.body.classList.toggle('snowing', show);
+}
+
 function isRedBullActive() {
   return world.redBullBuff.active && state.time.elapsed < world.redBullBuff.expiresAt;
 }
 
 function getPlayerSpeedMultiplier() {
-  return isRedBullActive() ? RED_BULL_PLAYER_MULT : 1;
+  let mult = isRedBullActive() ? RED_BULL_PLAYER_MULT : 1;
+  if (isSnowActive()) {
+    mult *= SNOW_SPEED_MULT;
+  }
+  return mult;
 }
 
 function getWorkerSpeedMultiplier() {
-  return isRedBullActive() ? RED_BULL_WORKER_MULT : 1;
+  let mult = isRedBullActive() ? RED_BULL_WORKER_MULT : 1;
+  if (isSnowActive()) {
+    mult *= SNOW_SPEED_MULT;
+  }
+  return mult;
 }
 
 function getBuildTimeMultiplier() {
-  return isRedBullActive() ? RED_BULL_BUILD_MULT : 1;
+  let mult = isRedBullActive() ? RED_BULL_BUILD_MULT : 1;
+  if (isSnowActive()) {
+    mult *= SNOW_BUILD_MULT;
+  }
+  return mult;
+}
+
+function getFetchTimeMultiplier() {
+  let mult = 1;
+  if (isSnowActive()) {
+    mult *= SNOW_FETCH_MULT;
+  }
+  return mult;
 }
 
 function drawGrid() {
@@ -2055,6 +2415,7 @@ function drawScene() {
   drawRedBull();
   drawWorkers();
   drawPlayer();
+  drawSnow();
 }
 
 function update(dt) {
@@ -2073,6 +2434,7 @@ function update(dt) {
     }
     updateWorkers(dt);
   }
+  updateSnow(dt);
   updateHUD();
 }
 
@@ -2151,6 +2513,7 @@ function applyRedBullBuff() {
   const message = 'Red Bull collected! Everyone speeds up.';
   statusEl.textContent = message;
   showBubble(message);
+  audio.playSfx('redbull', { position: entityCenter(player), volume: 0.9 });
 }
 
 function interact() {
@@ -2184,6 +2547,7 @@ function interact() {
       showBubble('Arms full! Deliver this coffee first.');
     } else {
       player.item = 'coffee';
+      audio.playSfx('coffee', { position: entityCenter(player), volume: 0.8 });
       showBubble('Hot coffee acquired! Find a worker to perk up.');
       statusEl.textContent = 'Coffee ready. Deliver to the crew to refill stamina.';
     }
@@ -2225,6 +2589,7 @@ function findNearbyWorker() {
 
 function deliverCoffee() {
   player.item = 'none';
+  audio.playSfx('coffee', { position: entityCenter(player), volume: 0.85 });
   workers.forEach(worker => {
     const maxStamina = getWorkerMaxStamina(worker);
     worker.stamina = maxStamina;
@@ -2247,6 +2612,7 @@ function togglePause() {
     showBubble('Project complete! Restart to play again.');
     return;
   }
+  playUiClick();
   isPaused = !isPaused;
   if (pauseBtn) {
     pauseBtn.textContent = isPaused ? 'Resume' : 'Pause';
@@ -2267,6 +2633,7 @@ function cycleSpeed() {
     showBubble('Speed locked — campus is already complete.');
     return;
   }
+  playUiClick();
   speedIndex = (speedIndex + 1) % speedOptions.length;
   state.time.speed = speedOptions[speedIndex];
   const label = updateSpeedLabel();
@@ -2278,6 +2645,7 @@ function handleWorkerAction(workerKey, action) {
     showBubble('Project complete! Restart to assign new orders.');
     return;
   }
+  playUiClick();
   const worker = workers.find(w => w.role === workerKey);
   if (!worker) {
     return;
@@ -2537,13 +2905,13 @@ window.addEventListener('resize', positionBubble);
 window.addEventListener('scroll', positionBubble);
 
 if (pauseBtn) {
-  pauseBtn.addEventListener('click', togglePause);
+  pauseBtn.addEventListener('click', () => { primeAudio(); togglePause(); });
 }
 if (speedBtn) {
-  speedBtn.addEventListener('click', cycleSpeed);
+  speedBtn.addEventListener('click', () => { primeAudio(); cycleSpeed(); });
 }
 if (restartBtn) {
-  restartBtn.addEventListener('click', restartGame);
+  restartBtn.addEventListener('click', () => { primeAudio(); playUiClick(); restartGame(); });
 }
 
 workerCards.forEach(card => {
@@ -2551,10 +2919,16 @@ workerCards.forEach(card => {
   const buttons = card.querySelectorAll('button[data-action]');
   buttons.forEach(btn => {
     btn.addEventListener('click', () => {
+      primeAudio();
       handleWorkerAction(workerKey, btn.dataset.action);
     });
   });
 });
+
+bindAudioUI();
+syncVolumeUI();
+document.addEventListener('click', primeAudio, { once: true });
+document.addEventListener('keydown', primeAudio, { once: true });
 
 updateHUD();
 refreshWorkerCards();
