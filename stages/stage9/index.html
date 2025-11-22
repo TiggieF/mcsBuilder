@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>mcsBuilder</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="hud">
+    <div class="hud-item material-card">
+      <div class="material-meta">
+        <span class="label">Material</span>
+        <span class="value" id="materialName">Concrete</span>
+      </div>
+      <div class="bar" id="materialBar">
+        <div class="fill" id="materialFill"></div>
+        <span class="bar-text" id="materialText">0/0</span>
+      </div>
+    </div>
+    <div class="hud-item bar-item">
+      <span class="label">MCS Progress</span>
+      <div class="bar" id="progressBar">
+        <div class="fill" id="progressFill"></div>
+        <span class="bar-text" id="progressText">12%</span>
+      </div>
+    </div>
+    <div class="hud-item">
+      <span class="label">Floors Complete</span>
+      <span class="value" id="hud-floors">0 / 10</span>
+    </div>
+    <div class="hud-item">
+      <span class="label">Current Floor</span>
+      <span class="value" id="hud-floor">1</span>
+    </div>
+    <div class="hud-item">
+      <span class="label">Total Time</span>
+      <span class="value" id="hud-time">00:00</span>
+    </div>
+    <div class="hud-item">
+      <span class="label">Delivery Level</span>
+      <span class="value" id="hud-delivery">L1 · 5 SP</span>
+    </div>
+    <div class="hud-item weather" id="snowHud">
+      <span class="label">Weather</span>
+      <span class="value"><span class="snow-icon" id="snowIcon" aria-hidden="true">❄️</span> <span id="snowLabel">Clear Skies</span></span>
+    </div>
+  </div>
+  <div class="main-wrapper">
+    <canvas id="gameCanvas" width="1140" height="600" aria-label="mcsBuilder playfield"></canvas>
+    <aside class="panel" aria-label="control panel">
+      <h2>Control Panel</h2>
+      <button id="pauseBtn" type="button">Pause</button>
+      <button id="speedBtn" type="button">Speed: 1×</button>
+      <section class="audio-controls" aria-label="audio controls">
+        <div class="audio-row">
+          <label for="masterVolume">Master</label>
+          <input id="masterVolume" type="range" min="0" max="1" step="0.01" value="0.85" />
+        </div>
+        <div class="audio-row">
+          <label for="musicVolume">Music</label>
+          <input id="musicVolume" type="range" min="0" max="1" step="0.01" value="0.7" />
+        </div>
+        <div class="audio-row">
+          <label for="sfxVolume">SFX</label>
+          <input id="sfxVolume" type="range" min="0" max="1" step="0.01" value="0.85" />
+        </div>
+      </section>
+      <section class="worker-group" aria-label="worker commands">
+        <div class="worker-card" data-worker="builder">
+          <div class="worker-header">
+            <h3>Builder</h3>
+            <span class="order-label">Idle</span>
+          </div>
+          <p class="summary">
+            Stamina: <span class="stamina">5.0</span> / <span class="stamina-max">5</span>
+            · Level <span class="level">1</span>
+            · State: <span class="state">idle</span>
+          </p>
+          <div class="worker-actions">
+            <button type="button" data-action="build">Build</button>
+            <button type="button" data-action="rest">Rest</button>
+            <button type="button" data-action="cancel">Cancel</button>
+          </div>
+        </div>
+        <div class="worker-card" data-worker="delivery">
+          <div class="worker-header">
+            <h3>Delivery</h3>
+            <span class="order-label">Idle</span>
+          </div>
+          <p class="summary">
+            Stamina: <span class="stamina">5.0</span> / <span class="stamina-max">5</span>
+            · Level <span class="level">1</span>
+            · State: <span class="state">idle</span>
+          </p>
+          <div class="worker-actions">
+            <button type="button" data-action="fetch">Fetch</button>
+            <button type="button" data-action="rest">Rest</button>
+            <button type="button" data-action="cancel">Cancel</button>
+          </div>
+        </div>
+      </section>
+      <p class="status" id="panelStatus">Awaiting input…</p>
+    </aside>
+  </div>
+  <div id="winOverlay" role="dialog" aria-modal="true" aria-labelledby="winTitle">
+    <div class="win-panel">
+      <h2 id="winTitle">Construction Complete!</h2>
+      <p>Total Time: <span id="winTime">00:00</span></p>
+      <button id="restartBtn" type="button">Restart Project</button>
+    </div>
+  </div>
+  <div id="textBubble" role="status" aria-live="polite"></div>
+  <div id="snowBanner" aria-live="polite">❄️ Snow Active</div>
+  <script src="main.js"></script>
+</body>
+</html>
