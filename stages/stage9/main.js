@@ -1,69 +1,29 @@
-'use strict';
 
-// ===== Canvas + drawing context =====
+//Canvas
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 ctx.imageSmoothingEnabled = false;
+const AUDIO_PATH = '../music/';
 
-// ===== Core tuning constants =====
+
+//  constants 
 const grid = { cols: 38, rows: 20, cell: 30 };
-const FPS = 30;
-const frameDuration = 1000 / FPS;
-const MAX_FLOORS = 10;
-const BUILDER_BASE_STAMINA = 5;
-const DELIVERY_BASE_STAMINA = 5;
-const DELIVERY_STAMINA_PER_FLOOR = 2;
+// builder with initial sstamina of 5
+// delivery with initial stamina of 5
 const STAMINA_REST_RATE = 0.25 / 1.5;
 const DELIVERY_TRIP_COST = 0.5;
 const STAMINA_BUILD_COST = 2.5;
-const DELIVERY_LEVEL_FLASH_DURATION = 2.4;
-const WORKER_ACTIVE_SPEED = 85;
-const WORKER_CARRY_SPEED = 75;
-const DELIVERY_LOAD_TIME = 1.1;
-const DELIVERY_DROP_TIME = 0.6;
-const WORKER_IDLE_SPEED = 28;
-const WORKER_APPROACH_BUFFER = 4;
-const PATH_REPLAN_INTERVAL = 1;
-const PATH_FAILURE_RETRY = 0.45;
 const MATERIAL_BASE = 10;
 const MATERIAL_PER_FLOOR = 5;
 const BUILD_BASE = 5;
 const BUILD_PER_FLOOR = 5;
-const BUILD_PROGRESS_SLOWDOWN = 1.5;
-const DROP_CHANCE_PER_TILE = 0.1;
-const DROP_OOPS_DURATION = 3;
-const OOPS_BUBBLE_DURATION = 1;
-const CAMERA_SHAKE_DURATION = 0.4;
-const CAMERA_SHAKE_FREQUENCY = 30;
-const CAMERA_SHAKE_MAGNITUDE = 4;
-const PLAYER_INTERACT_COOLDOWN = 0.35;
-const EDGE_MARGIN = 1;
-const RED_BULL_INTERVAL = 300;
-const RED_BULL_DURATION = 60;
-const RED_BULL_PLAYER_MULT = 2;
-const RED_BULL_WORKER_MULT = 1.3;
-const RED_BULL_BUILD_MULT = 0.9;
-const SNOW_MIN_PARTICLES = 320;
-const SNOW_MAX_PARTICLES = 480;
-const SNOW_OVERLAY_ALPHA = 0.08;
-const SNOW_INTERVAL = 600;
-const SNOW_START_MIN = SNOW_INTERVAL;
-const SNOW_START_MAX = SNOW_INTERVAL;
-const SNOW_BREAK_MIN = SNOW_INTERVAL;
-const SNOW_BREAK_MAX = SNOW_INTERVAL;
-const SNOW_MIN_DURATION = 120;
-const SNOW_WIND_STRENGTH = 18;
-const SNOW_SWAY_SPEED = 0.7;
-const SNOW_FALL_MIN = 28;
-const SNOW_FALL_MAX = 70;
-const SNOW_SPEED_MULT = 0.7;
-const SNOW_BUILD_MULT = 1.1;
-const SNOW_FETCH_MULT = 1.1;
-const AUDIO_PATH = '../music/';
+const DROP_CHANCE_PER_TILE = 0.2;
+
+
 const MEDAL_THRESHOLDS = {
-  gold: 3 * 60 * 60,
-  silver: 4 * 60 * 60,
-  bronze: 5 * 60 * 60
+  gold: 5 * 3600,
+  silver: 6 * 3600,
+  bronze: 7 * 3600
 };
 const DIFFICULTY_CONFIG = {
   easy: {
@@ -72,7 +32,7 @@ const DIFFICULTY_CONFIG = {
     buildTimeMult: 0.9,
     dropChanceMult: 0,
     snowPenalty: -0.05,
-    redBullInterval: RED_BULL_INTERVAL,
+    redBullInterval: 300,
     cameraMagnitude: 2
   },
   normal: {
@@ -81,7 +41,7 @@ const DIFFICULTY_CONFIG = {
     buildTimeMult: 1,
     dropChanceMult: 1,
     snowPenalty: 0,
-    redBullInterval: RED_BULL_INTERVAL,
+    redBullInterval: 300,
     cameraMagnitude: 4
   },
   hard: {
@@ -105,7 +65,7 @@ const AUDIO_FILES = {
   oops: 'oops.mp3',
   building: 'buildingSound.mp3'
 };
-const DEFAULT_VOLUME = { master: 0.85, music: 0.7, sfx: 0.85 };
+const DEFAULT_VOLUME = { master: 0.5, music: 0.7, sfx: 0.85 };
 
 const MATERIAL_RULES = [
   { name: 'concrete', floors: [1, 3], color: '#9c9c9c' },
@@ -113,7 +73,7 @@ const MATERIAL_RULES = [
   { name: 'glass', floors: [8, 10], color: '#7cd7ff' }
 ];
 
-// ===== Simple worker state machines =====
+// =====  worker =====
 const WorkerFSMConfig = {
   builder: {
     idle: { build: 'headingToSite', rest: 'headingToDorm', cancel: 'idle' },
@@ -146,9 +106,7 @@ function createStateMachine(role) {
       if (!next) {
         return false;
       }
-      const previous = this.state;
       this.state = next;
-      logStateTransition(worker, event, previous, next);
       return true;
     }
   };
@@ -170,18 +128,19 @@ const MCS_FLOOR_PALETTES = [
 // Cache the generated canvas patterns to keep drawing inexpensive
 const textures = {
   grass: createGrassPattern('#1f3a1c', '#2f5327', '#3f6d31'),
-  mcs: createStripedPattern(
+  mcs: createBrickPattern(
     MCS_FLOOR_PALETTES[0].primary,
     MCS_FLOOR_PALETTES[0].secondary,
     MCS_FLOOR_PALETTES[0].shadow
   ),
   building: createBrickPattern('#744d2b', '#4b321b', '#301f10'),
   cafe: createBrickPattern('#223937', '#1b2c2a', '#12201e'),
-  dorm: createStripedPattern('#3e2b58', '#5b3f7a', '#211334'),
-  rock: createRockPattern('#505667', '#292c36', '#8f95a6'),
-  pond: createWaterPattern('#1c3558', '#2d5a8c', '#13213a')
+  dorm: createBrickPattern('#3e2b58', '#5b3f7a', '#211334'),
+  rock: createGrassPattern('#505667', '#292c36', '#8f95a6'),
+  pond: createGrassPattern('#1c3558', '#2d5a8c', '#13213a')
 };
-
+// create water pattern
+// create rock pattern
 // ===== Utility helpers =====
 function materialNeededForFloor(floor) {
   return MATERIAL_BASE + MATERIAL_PER_FLOOR * (floor - 1);
@@ -215,7 +174,7 @@ function createSnowState() {
   return {
     active: false,
     particles: [],
-    nextEventAt: SNOW_INTERVAL,
+    nextEventAt: 600,
     minActiveUntil: 0,
     endAt: 0,
     overlayAlpha: 0,
@@ -276,7 +235,6 @@ const hudFloors = document.getElementById('hud-floors');
 const hudDelivery = document.getElementById('hud-delivery');
 const snowHud = document.getElementById('snowHud');
 const snowLabel = document.getElementById('snowLabel');
-const snowIcon = document.getElementById('snowIcon');
 const snowBanner = document.getElementById('snowBanner');
 const startMenu = document.getElementById('startMenu');
 const startBtn = document.getElementById('startBtn');
@@ -307,7 +265,7 @@ const audio = createAudioSystem();
 bubble.style.display = 'none';
 updateSpeedLabel();
 let gameStarted = false;
-const cameraShake = { elapsed: 0, duration: 0, magnitude: 0, frequency: CAMERA_SHAKE_FREQUENCY };
+const cameraShake = { elapsed: 0, duration: 0, magnitude: 0, frequency: 30 };
 
 // ----- Geometry helpers -----
 function rectsOverlap(a, b) {
@@ -554,12 +512,12 @@ function alignWorkerToCenter(worker, center) {
 
 function getWorkerMaxStamina(worker) {
   if (!worker) {
-    return BUILDER_BASE_STAMINA;
+    return 5;
   }
   if (typeof worker.maxStamina === 'number') {
     return worker.maxStamina;
   }
-  return worker.role === 'delivery' ? DELIVERY_BASE_STAMINA : BUILDER_BASE_STAMINA;
+  return worker.role === 'delivery' ? 5 : 5;
 }
 
 function formatTime(seconds) {
@@ -569,7 +527,7 @@ function formatTime(seconds) {
 }
 
 function getRedBullInterval() {
-  return currentDifficulty?.redBullInterval || RED_BULL_INTERVAL;
+  return currentDifficulty?.redBullInterval || 300;
 }
 
 function getDropChancePerTile() {
@@ -577,8 +535,7 @@ function getDropChancePerTile() {
 }
 
 function getSnowSpeedPenaltyMultiplier() {
-  const basePenalty = 1 - SNOW_SPEED_MULT;
-  const adjusted = clamp(basePenalty + (currentDifficulty?.snowPenalty ?? 0), 0, 0.95);
+  const adjusted = clamp(0.3 + (currentDifficulty?.snowPenalty ?? 0), 0, 0.95);
   return 1 - adjusted;
 }
 
@@ -587,15 +544,8 @@ function getSnowTaskMultiplier(basePenalty) {
   return 1 + adjusted;
 }
 
-function logStateTransition(worker, event, fromState, toState) {
-  const label = worker ? worker.name : 'Worker';
-  const timestamp = formatTime(state.time.elapsed || 0);
-  console.log(`[${timestamp}] ${label}: ${fromState} —${event}→ ${toState}`);
-}
-
-
 function updateHUD() {
-  const floorNumber = Math.min(state.floor.n, MAX_FLOORS);
+  const floorNumber = Math.min(state.floor.n, 10);
   hudFloor.textContent = `${floorNumber}`;
 
   const currentNeed = state.floor.need;
@@ -783,24 +733,6 @@ function createGrassPattern(primary, secondary, accent) {
   return ctx.createPattern(tile, 'repeat');
 }
 
-function createStripedPattern(primary, secondary, shadow) {
-  const tile = document.createElement('canvas');
-  tile.width = 16;
-  tile.height = 16;
-  const tctx = tile.getContext('2d');
-  tctx.imageSmoothingEnabled = false;
-  tctx.fillStyle = shadow;
-  tctx.fillRect(0, 0, tile.width, tile.height);
-  tctx.fillStyle = primary;
-  for (let x = 0; x < tile.width; x += 4) {
-    tctx.fillRect(x, 0, 3, tile.height);
-  }
-  tctx.fillStyle = secondary;
-  for (let y = 0; y < tile.height; y += 8) {
-    tctx.fillRect(0, y, tile.width, 2);
-  }
-  return ctx.createPattern(tile, 'repeat');
-}
 
 function createBrickPattern(base, mortar, shadow) {
   const tile = document.createElement('canvas');
@@ -826,51 +758,13 @@ function createBrickPattern(base, mortar, shadow) {
   return ctx.createPattern(tile, 'repeat');
 }
 
-function createRockPattern(primary, shadow, highlight) {
-  const tile = document.createElement('canvas');
-  tile.width = 16;
-  tile.height = 16;
-  const tctx = tile.getContext('2d');
-  tctx.imageSmoothingEnabled = false;
-  tctx.fillStyle = shadow;
-  tctx.fillRect(0, 0, tile.width, tile.height);
-  tctx.fillStyle = primary;
-  const blocks = [
-    [2, 2, 4, 4], [8, 1, 5, 5], [1, 9, 6, 5]
-  ];
-  blocks.forEach(([x, y, w, h]) => {
-    tctx.fillRect(x, y, w, h);
-  });
-  tctx.fillStyle = highlight;
-  [[3, 3], [9, 3], [5, 11]].forEach(([x, y]) => {
-    tctx.fillRect(x, y, 2, 2);
-  });
-  return ctx.createPattern(tile, 'repeat');
-}
 
-function createWaterPattern(base, ripple, highlight) {
-  const tile = document.createElement('canvas');
-  tile.width = 16;
-  tile.height = 16;
-  const tctx = tile.getContext('2d');
-  tctx.imageSmoothingEnabled = false;
-  tctx.fillStyle = base;
-  tctx.fillRect(0, 0, tile.width, tile.height);
-  tctx.fillStyle = ripple;
-  for (let y = 0; y < tile.height; y += 4) {
-    tctx.fillRect(0, y, tile.width, 2);
-  }
-  tctx.fillStyle = highlight;
-  for (let x = 0; x < tile.width; x += 6) {
-    tctx.fillRect(x, (x % 2 === 0 ? 3 : 1), 3, 1);
-  }
-  return ctx.createPattern(tile, 'repeat');
-}
+
 
 function getMcsPatternForFloorsBuilt(floorsBuilt) {
   const paletteIndex = ((floorsBuilt % MCS_FLOOR_PALETTES.length) + MCS_FLOOR_PALETTES.length) % MCS_FLOOR_PALETTES.length;
   const palette = MCS_FLOOR_PALETTES[paletteIndex] || MCS_FLOOR_PALETTES[0];
-  return createStripedPattern(palette.primary, palette.secondary, palette.shadow);
+  return createBrickPattern(palette.primary, palette.secondary, palette.shadow);
 }
 
 function refreshMcsZoneTexture() {
@@ -973,10 +867,10 @@ function computeRockForbiddenCells(zones) {
 function placeRandomZone(config, placed, padding) {
   const width = config.tilesWide * grid.cell;
   const height = config.tilesHigh * grid.cell;
-  let minCol = EDGE_MARGIN;
-  let minRow = EDGE_MARGIN;
-  let maxCol = grid.cols - config.tilesWide - EDGE_MARGIN;
-  let maxRow = grid.rows - config.tilesHigh - EDGE_MARGIN;
+  let minCol = 1;
+  let minRow = 1;
+  let maxCol = grid.cols - config.tilesWide - 1;
+  let maxRow = grid.rows - config.tilesHigh - 1;
 
   if (maxCol < minCol) {
     minCol = 0;
@@ -1011,8 +905,8 @@ function placeRandomZone(config, placed, padding) {
     attempts += 1;
   }
 
-  const fallbackCol = Math.max(minCol, Math.min(maxCol, EDGE_MARGIN));
-  const fallbackRow = Math.max(minRow, Math.min(maxRow, EDGE_MARGIN));
+  const fallbackCol = Math.max(minCol, Math.min(maxCol, 1));
+  const fallbackRow = Math.max(minRow, Math.min(maxRow, 1));
 
   return {
     name: config.name,
@@ -1298,7 +1192,7 @@ function createInitialState(playerCell, blocked) {
   world.nextRedBullAt = getRedBullInterval();
   return {
     time: { elapsed: 0, speed: 1 },
-    progress: { floorsBuilt: 0, totalFloors: MAX_FLOORS },
+    progress: { floorsBuilt: 0, totalFloors: 10 },
     floor: { n: 1, progress: 0, need: materialNeededForFloor(1), buildTime: buildTimeFor(1) },
     stock: { concrete: 2, wood: 0, glass: 0 },
     player,
@@ -1316,7 +1210,7 @@ function findWorkerCell(preferred, blocked) {
 function createWorker(id, role, name, cell, idleColor, activeColor, accentColor) {
   const width = 20;
   const height = 20;
-  const maxStamina = role === 'delivery' ? DELIVERY_BASE_STAMINA : BUILDER_BASE_STAMINA;
+  const maxStamina = role === 'delivery' ? 5 : 5;
   return {
     id,
     role,
@@ -1336,9 +1230,8 @@ function createWorker(id, role, name, cell, idleColor, activeColor, accentColor)
     levelGlow: 0,
     inv: 0,
     cargo: null,
-    orderStarted: false,
-    tripTimer: 0,
-    idleSpeed: WORKER_IDLE_SPEED,
+    idleSpeed: 28,
+    // worker idle speed
     idleCooldown: Math.random() * 1.5,
     target: null,
     path: null,
@@ -1421,7 +1314,7 @@ function updateWorkers(dt) {
     }
     if (!gameComplete) {
       if (worker.target || (worker.path && worker.path.length > 0)) {
-        if (worker.pathReplanTimer >= PATH_REPLAN_INTERVAL) {
+        if (worker.pathReplanTimer >= 1) {
           worker.pathNeedsRecalc = true;
           worker.pathReplanTimer = 0;
         }
@@ -1464,7 +1357,6 @@ function updateWorkers(dt) {
 
 function processWorkerOrder(worker, dt) {
   if (gameComplete) {
-    worker.orderStarted = false;
     return;
   }
   if (worker.oopsTimer > 0) {
@@ -1482,7 +1374,6 @@ function processWorkerOrder(worker, dt) {
 
   if (worker.order === 'idle') {
     worker.activity = 'idle';
-    worker.orderStarted = false;
     worker.buildReserved = false;
     worker.taskTimer = 0;
     return;
@@ -1513,7 +1404,7 @@ function handleBuilder(worker, dt) {
   }
 
   if (worker.activity === 'toSite') {
-    const arrived = moveWorkerToward(worker, approach, WORKER_ACTIVE_SPEED * getWorkerSpeedMultiplier(), dt);
+    const arrived = moveWorkerToward(worker, approach, 85 * getWorkerSpeedMultiplier(), dt);
     if (arrived) {
       alignWorkerToCenter(worker, approach);
       worker.stateMachine.transition('arriveWork', worker);
@@ -1548,7 +1439,7 @@ function handleBuilder(worker, dt) {
       worker.buildSoundTimer = 1.1;
     }
     const buildMultiplier = getBuildTimeMultiplier();
-    const progressGain = dt / (state.floor.buildTime * BUILD_PROGRESS_SLOWDOWN * buildMultiplier);
+    const progressGain = dt / (state.floor.buildTime * 1.5 * buildMultiplier);
     state.floor.progress = Math.min(1, state.floor.progress + progressGain);
     if (state.floor.progress >= 1) {
       worker.buildReserved = false;
@@ -1580,7 +1471,7 @@ function handleDelivery(worker, dt) {
   }
 
   if (worker.activity === 'toDepot') {
-    const arrived = moveWorkerToward(worker, depotApproach, WORKER_ACTIVE_SPEED * getWorkerSpeedMultiplier(), dt);
+    const arrived = moveWorkerToward(worker, depotApproach, 85 * getWorkerSpeedMultiplier(), dt);
     if (arrived) {
       alignWorkerToCenter(worker, depotApproach);
       worker.stateMachine.transition('arriveSource', worker);
@@ -1594,7 +1485,7 @@ function handleDelivery(worker, dt) {
 
   if (worker.activity === 'loading') {
     worker.taskTimer += dt;
-    const loadDuration = DELIVERY_LOAD_TIME * getFetchTimeMultiplier();
+    const loadDuration = 1.1 * getFetchTimeMultiplier();
     if (worker.taskTimer >= loadDuration) {
       worker.taskTimer = 0;
       const remaining = Math.max(0, state.floor.need - (state.stock[requiredMaterial] || 0));
@@ -1612,7 +1503,7 @@ function handleDelivery(worker, dt) {
   }
 
   if (worker.activity === 'toMcs') {
-    const arrived = moveWorkerToward(worker, mcsApproach, WORKER_CARRY_SPEED * getWorkerSpeedMultiplier(), dt);
+    const arrived = moveWorkerToward(worker, mcsApproach, 75 * getWorkerSpeedMultiplier(), dt);
     if (arrived) {
       alignWorkerToCenter(worker, mcsApproach);
       worker.stateMachine.transition('arriveSite', worker);
@@ -1624,7 +1515,7 @@ function handleDelivery(worker, dt) {
 
   if (worker.activity === 'delivering') {
     worker.taskTimer += dt;
-    const dropDuration = DELIVERY_DROP_TIME * getFetchTimeMultiplier();
+    const dropDuration = 0.6 * getFetchTimeMultiplier();
     if (worker.taskTimer >= dropDuration) {
       worker.taskTimer = 0;
       if (worker.inv <= 0 || !worker.cargo) {
@@ -1665,7 +1556,7 @@ function handleRest(worker, dt) {
   }
 
   if (worker.activity === 'toDorm') {
-    const arrived = moveWorkerToward(worker, dormApproach, WORKER_ACTIVE_SPEED * getWorkerSpeedMultiplier(), dt);
+    const arrived = moveWorkerToward(worker, dormApproach, 85 * getWorkerSpeedMultiplier(), dt);
     if (arrived) {
       alignWorkerToCenter(worker, dormApproach);
       worker.stateMachine.transition('arriveRest', worker);
@@ -1698,10 +1589,10 @@ function celebrateDeliveryLevelUp() {
   }
   const floorsBuilt = state.progress.floorsBuilt;
   const totalFloors = state.progress.totalFloors;
-  deliveryWorker.maxStamina = DELIVERY_BASE_STAMINA + DELIVERY_STAMINA_PER_FLOOR * floorsBuilt;
+  deliveryWorker.maxStamina = 5 + 2 * floorsBuilt;
   deliveryWorker.stamina = deliveryWorker.maxStamina;
   deliveryWorker.level = Math.min(totalFloors + 1, floorsBuilt + 1);
-  deliveryWorker.levelGlow = DELIVERY_LEVEL_FLASH_DURATION;
+  deliveryWorker.levelGlow = 2.4 ; //DELIVERY_LEVEL_FLASH_DURATION
   refreshWorkerCards();
 }
 
@@ -1710,7 +1601,7 @@ function completeFloor() {
   state.progress.floorsBuilt = Math.min(state.progress.floorsBuilt + 1, state.progress.totalFloors);
   celebrateDeliveryLevelUp();
 
-  if (finished >= MAX_FLOORS) {
+  if (finished >= 10) {
     state.floor.progress = 1;
     state.floor.need = 0;
     refreshMcsZoneTexture();
@@ -1718,7 +1609,7 @@ function completeFloor() {
     return;
   }
 
-  state.floor.n = Math.min(finished + 1, MAX_FLOORS);
+  state.floor.n = Math.min(finished + 1, 10);
   state.floor.progress = 0;
   state.floor.need = materialNeededForFloor(state.floor.n);
   state.floor.buildTime = buildTimeFor(state.floor.n);
@@ -1920,21 +1811,20 @@ function handleWorkerTileChange(worker, fromCell, toCell) {
 
 function triggerCameraShake() {
   cameraShake.elapsed = 0;
-  cameraShake.duration = CAMERA_SHAKE_DURATION;
-  cameraShake.magnitude = currentDifficulty?.cameraMagnitude || CAMERA_SHAKE_MAGNITUDE;
-  cameraShake.frequency = CAMERA_SHAKE_FREQUENCY;
+  cameraShake.duration = 0.4;
+  cameraShake.magnitude = currentDifficulty?.cameraMagnitude || 4;
+  cameraShake.frequency = 30;
 }
 
 function triggerDropAccident(worker) {
   if (!worker) return;
   worker.inv = 0;
   worker.cargo = null;
-  worker.oopsTimer = DROP_OOPS_DURATION;
-  worker.oopsBubbleTimer = OOPS_BUBBLE_DURATION;
+  worker.oopsTimer = 3;
+  worker.oopsBubbleTimer = 1;
   worker.resumeAfterOops = worker.order === 'deliver';
   worker.order = 'idle';
   worker.activity = 'oops';
-  worker.orderStarted = false;
   setWorkerDestination(worker, null);
   const message = `${worker.name} dropped the materials!`;
   statusEl.textContent = message;
@@ -1973,7 +1863,7 @@ function moveTowardPoint(worker, target, speed, dt) {
   const dx = target.x - center.x;
   const dy = target.y - center.y;
   const distance = Math.hypot(dx, dy);
-  if (distance <= WORKER_APPROACH_BUFFER) {
+  if (distance <= 4) {
     alignWorkerToCenter(worker, target);
     return true;
   }
@@ -1990,7 +1880,7 @@ function moveTowardPoint(worker, target, speed, dt) {
     worker.pathNeedsRecalc = true;
   }
   const newCenter = workerCenter(worker);
-  return Math.hypot(target.x - newCenter.x, target.y - newCenter.y) <= WORKER_APPROACH_BUFFER;
+  return Math.hypot(target.x - newCenter.x, target.y - newCenter.y) <= 4;
 }
 
 function ensureWorkerPath(worker, target) {
@@ -2048,7 +1938,7 @@ function ensureWorkerPath(worker, target) {
       worker.path = null;
       worker.pathIndex = 0;
       worker.pathBlocked = true;
-      worker.pathFailureCooldown = PATH_FAILURE_RETRY;
+      worker.pathFailureCooldown = 0.45;
       worker.pathGoal = goalKey;
       worker.pathNeedsRecalc = false;
       worker.pathReplanTimer = 0;
@@ -2152,17 +2042,17 @@ function isSnowActive() {
 
 function startSnow() {
   snow.active = true;
-  snow.minActiveUntil = state.time.elapsed + SNOW_MIN_DURATION;
+  snow.minActiveUntil = state.time.elapsed + 120; //snow duration time
   snow.endAt = snow.minActiveUntil + getRandomInt(40, 140);
   snow.windPhase = Math.random() * Math.PI * 2;
-  snow.particles = createSnowParticles(getRandomInt(SNOW_MIN_PARTICLES, SNOW_MAX_PARTICLES));
+  snow.particles = createSnowParticles(getRandomInt(320, 480));
   showBubble('SNOW!');
   toggleSnowBanner(true);
 }
 
 function stopSnow() {
   snow.active = false;
-  snow.nextEventAt = state.time.elapsed + getRandomInt(SNOW_BREAK_MIN, SNOW_BREAK_MAX);
+  snow.nextEventAt = state.time.elapsed + 600;
   toggleSnowBanner(false);
 }
 
@@ -2172,7 +2062,7 @@ function resetSnow() {
   snow.overlayAlpha = 0;
   snow.minActiveUntil = 0;
   snow.endAt = 0;
-  snow.nextEventAt = SNOW_INTERVAL;
+  snow.nextEventAt = 600;
   toggleSnowBanner(false);
 }
 
@@ -2182,7 +2072,7 @@ function createSnowParticles(count) {
     particles.push({
       x: Math.random() * canvas.width,
       y: Math.random() * canvas.height,
-      speed: getRandomInt(SNOW_FALL_MIN, SNOW_FALL_MAX) / 12,
+      speed: getRandomInt(28, 70) / 12,
       radius: Math.random() * 1.8 + 0.8,
       drift: (Math.random() - 0.5) * 10,
       sway: Math.random() * Math.PI * 2
@@ -2201,14 +2091,14 @@ function updateSnow(dt) {
     }
   }
 
-  const targetAlpha = snow.active ? SNOW_OVERLAY_ALPHA : 0;
+  const targetAlpha = snow.active ? 0.08 : 0;
   snow.overlayAlpha += (targetAlpha - snow.overlayAlpha) * Math.min(1, dt * 3);
 
   if (snow.particles.length === 0 && snow.active) {
-    snow.particles = createSnowParticles(getRandomInt(SNOW_MIN_PARTICLES, SNOW_MAX_PARTICLES));
+    snow.particles = createSnowParticles(getRandomInt(320, 480));
   }
 
-  const wind = Math.sin((state.time.elapsed + snow.windPhase) * SNOW_SWAY_SPEED) * SNOW_WIND_STRENGTH;
+  const wind = Math.sin((state.time.elapsed + snow.windPhase) * 0.7) * 18;
   snow.particles.forEach(p => {
     p.sway += dt;
     p.x += (p.drift + wind * 0.06 + Math.sin(p.sway * 2) * 4) * dt;
@@ -2259,7 +2149,7 @@ function isRedBullActive() {
 }
 
 function getPlayerSpeedMultiplier() {
-  let mult = isRedBullActive() ? RED_BULL_PLAYER_MULT : 1;
+  let mult = isRedBullActive() ? 2 : 1;
   mult *= currentDifficulty?.speedMult || 1;
   if (isSnowActive()) {
     mult *= getSnowSpeedPenaltyMultiplier();
@@ -2268,7 +2158,7 @@ function getPlayerSpeedMultiplier() {
 }
 
 function getWorkerSpeedMultiplier() {
-  let mult = isRedBullActive() ? RED_BULL_WORKER_MULT : 1;
+  let mult = isRedBullActive() ? 1.3 : 1;
   mult *= currentDifficulty?.speedMult || 1;
   if (isSnowActive()) {
     mult *= getSnowSpeedPenaltyMultiplier();
@@ -2277,9 +2167,9 @@ function getWorkerSpeedMultiplier() {
 }
 
 function getBuildTimeMultiplier() {
-  let mult = (isRedBullActive() ? RED_BULL_BUILD_MULT : 1) * (currentDifficulty?.buildTimeMult || 1);
+  let mult = (isRedBullActive() ? 0.9 : 1) * (currentDifficulty?.buildTimeMult || 1);
   if (isSnowActive()) {
-    mult *= getSnowTaskMultiplier(SNOW_BUILD_MULT - 1);
+    mult *= getSnowTaskMultiplier(1.1);
   }
   return mult;
 }
@@ -2287,7 +2177,7 @@ function getBuildTimeMultiplier() {
 function getFetchTimeMultiplier() {
   let mult = 1;
   if (isSnowActive()) {
-    mult *= getSnowTaskMultiplier(SNOW_FETCH_MULT - 1);
+    mult *= getSnowTaskMultiplier(0.1);
   }
   return mult;
 }
@@ -2680,8 +2570,8 @@ function spawnRedBullTile() {
 
 function findRedBullSpawnCell() {
   for (let attempt = 0; attempt < 400; attempt++) {
-    const col = getRandomInt(EDGE_MARGIN, grid.cols - EDGE_MARGIN - 1);
-    const row = getRandomInt(EDGE_MARGIN, grid.rows - EDGE_MARGIN - 1);
+    const col = getRandomInt(1, grid.cols - 2);
+    const row = getRandomInt(1, grid.rows - 2);
     const key = cellKey({ col, row });
     if (blockedCells.has(key)) {
       continue;
@@ -2692,10 +2582,10 @@ function findRedBullSpawnCell() {
 }
 
 function applyRedBullBuff() {
-  world.redBullBuff = { active: true, expiresAt: state.time.elapsed + RED_BULL_DURATION };
+  world.redBullBuff = { active: true, expiresAt: state.time.elapsed + 60 };
   world.redBullTile = null;
   world.nextRedBullAt = state.time.elapsed + getRedBullInterval();
-  const message = 'Red Bull collected! Everyone speeds up.';
+  const message = 'Red Bull collected! Everyone fire up.';
   statusEl.textContent = message;
   showBubble(message);
   audio.playSfx('redbull', { position: entityCenter(player), volume: 0.9 });
@@ -2705,7 +2595,9 @@ function interact() {
   if (player.cooldown > 0) {
     return;
   }
-  player.cooldown = PLAYER_INTERACT_COOLDOWN;
+  player.cooldown = 0.35;
+  // cooldown to prevent spamming
+  // set limit to 0.35 seconds
 
   if (gameComplete) {
     showBubble('Campus is complete! Tap restart to run it again.');
@@ -3017,9 +2909,7 @@ function setWorkerOrder(worker, newOrder, messageOverride) {
   }
 
   if (newOrder === 'idle') {
-    worker.orderStarted = false;
     setWorkerDestination(worker, null);
-    worker.tripTimer = 0;
     worker.idleCooldown = Math.random() * 0.6;
     worker.activity = 'idle';
     worker.buildReserved = false;
@@ -3029,13 +2919,11 @@ function setWorkerOrder(worker, newOrder, messageOverride) {
   } else {
     setWorkerDestination(worker, null);
     if (newOrder === 'build') {
-      worker.orderStarted = false;
       worker.buildReserved = false;
       worker.activity = 'toSite';
       setWorkerDestination(worker, getApproachCenter('MCS Construction'));
     }
     if (newOrder === 'deliver') {
-      worker.tripTimer = 0;
       worker.inv = 0;
       worker.cargo = null;
       worker.activity = 'toDepot';
@@ -3109,9 +2997,7 @@ function startGame() {
 
 function toggleControlsPanel() {
   if (!controlsPanel) return;
-  const isHidden = controlsPanel.hasAttribute('hidden');
   controlsPanel.toggleAttribute('hidden');
-  controlsBtn?.classList.toggle('active', isHidden);
 }
 
 document.addEventListener('keydown', (event) => {
@@ -3181,7 +3067,7 @@ updateHUD();
 refreshWorkerCards();
 drawScene();
 setInterval(() => {
-  update(1 / FPS);
+  update(1 / 30);
   drawScene();
   positionBubble();
-}, frameDuration);
+}, 100 / 3);
