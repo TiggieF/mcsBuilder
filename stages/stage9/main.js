@@ -115,7 +115,7 @@ function createStateMachine(role) {
 canvas.width = grid.cols * grid.cell;
 canvas.height = grid.rows * grid.cell;
 
-// ===== Palette + texture references =====
+// clour of mcs changes each a new floor is built
 const MCS_FLOOR_PALETTES = [
   { primary: '#303a65', secondary: '#47578c', shadow: '#1d233c' },
   { primary: '#2f4f6f', secondary: '#4b6d98', shadow: '#1a2d45' },
@@ -125,17 +125,21 @@ const MCS_FLOOR_PALETTES = [
   { primary: '#2b5d5b', secondary: '#3f8b87', shadow: '#162e2c' }
 ];
 
+const initialMcsPalette = MCS_FLOOR_PALETTES[0];
+
 // Cache the generated canvas patterns to keep drawing inexpensive
 const textures = {
   grass: createGrassPattern('#1f3a1c', '#2f5327', '#3f6d31'),
-  mcs: createBrickPattern(
-    MCS_FLOOR_PALETTES[0].primary,
-    MCS_FLOOR_PALETTES[0].secondary,
-    MCS_FLOOR_PALETTES[0].shadow
+  mcs: createGrassPattern(
+    initialMcsPalette.primary,
+    initialMcsPalette.secondary,
+    initialMcsPalette.shadow
   ),
-  building: createBrickPattern('#744d2b', '#4b321b', '#301f10'),
-  cafe: createBrickPattern('#223937', '#1b2c2a', '#12201e'),
-  dorm: createBrickPattern('#3e2b58', '#5b3f7a', '#211334'),
+  concrete: createGrassPattern('#6a6d70', '#8f949a', '#cfd4da'),
+  wood: createGrassPattern('#5b3a1c', '#8f6331', '#c4833a'),
+  glass: createGrassPattern('#1d6f9f', '#58c7ff', '#a6ecff'),
+  cafe: createGrassPattern('#223937', '#1b2c2a', '#12201e'),
+  dorm: createGrassPattern('#3e2b58', '#5b3f7a', '#211334'),
   rock: createGrassPattern('#505667', '#292c36', '#8f95a6'),
   pond: createGrassPattern('#1c3558', '#2d5a8c', '#13213a')
 };
@@ -147,17 +151,36 @@ function materialNeededForFloor(floor) {
 }
 
 function materialForFloor(floor) {
-  const rule = MATERIAL_RULES.find(entry => floor >= entry.floors[0] && floor <= entry.floors[1]);
-  return rule ? rule.name : MATERIAL_RULES[MATERIAL_RULES.length - 1].name;
+  const matchingRule = MATERIAL_RULES.find(entry => {
+    const [start, end] = entry.floors;
+    return floor >= start && floor <= end;
+  });
+
+  if (matchingRule) {
+    return matchingRule.name;
+  }
+
+  const fallbackRule = MATERIAL_RULES[MATERIAL_RULES.length - 1];
+  return fallbackRule.name;
 }
 
 function materialColor(material) {
   const rule = MATERIAL_RULES.find(entry => entry.name === material);
-  return rule ? rule.color : '#9c9c9c';
+
+  if (rule) {
+    return rule.color;
+  }
+
+  return '#9c9c9c';
 }
 
 function materialLabel(material) {
-  return material ? material.charAt(0).toUpperCase() + material.slice(1) : 'Unknown';
+  if (!material) {
+    return 'Unknown';
+  }
+
+  const capitalized = material.charAt(0).toUpperCase() + material.slice(1);
+  return capitalized;
 }
 
 function getDepotName(material) {
@@ -391,9 +414,15 @@ function findPathWithBlockers(start, goal, goalKey, dynamicBlockers) {
       if (blockedCells.has(neighborKey) && neighborKey !== goalKey) {
         return;
       }
-      const currentG = gScore.has(current.key) ? gScore.get(current.key) : Infinity;
+      let currentG = Infinity;
+      if (gScore.has(current.key)) {
+        currentG = gScore.get(current.key);
+      }
       const tentativeG = currentG + 1;
-      const neighborBest = gScore.has(neighborKey) ? gScore.get(neighborKey) : Infinity;
+      let neighborBest = Infinity;
+      if (gScore.has(neighborKey)) {
+        neighborBest = gScore.get(neighborKey);
+      }
       if (tentativeG >= neighborBest) {
         return;
       }
@@ -517,7 +546,10 @@ function getWorkerMaxStamina(worker) {
   if (typeof worker.maxStamina === 'number') {
     return worker.maxStamina;
   }
-  return worker.role === 'delivery' ? 5 : 5;
+  if (worker.role === 'delivery') {
+    return 5;
+  }
+  return 5;
 }
 
 function formatTime(seconds) {
@@ -551,11 +583,19 @@ function updateHUD() {
   const currentNeed = state.floor.need;
   const currentMaterial = world.currentMaterial;
   const storedAmount = state.stock[currentMaterial] || 0;
-  const materialRatio = currentNeed <= 0
-    ? 1
-    : Math.max(0, Math.min(1, storedAmount / currentNeed));
-  const storedLabel = Number.isInteger(storedAmount) ? storedAmount : storedAmount.toFixed(1);
-  const needLabel = currentNeed > 0 ? currentNeed : '—';
+  let materialRatio = 1;
+  if (currentNeed > 0) {
+    const ratio = storedAmount / currentNeed;
+    materialRatio = Math.max(0, Math.min(1, ratio));
+  }
+  let storedLabel = storedAmount.toFixed(1);
+  if (Number.isInteger(storedAmount)) {
+    storedLabel = storedAmount;
+  }
+  let needLabel = '—';
+  if (currentNeed > 0) {
+    needLabel = currentNeed;
+  }
   materialText.textContent = `${storedLabel}/${needLabel}`;
   materialFill.style.width = `${materialRatio * 100}%`;
   materialName.textContent = materialLabel(currentMaterial);
@@ -574,7 +614,10 @@ function updateHUD() {
     hudDelivery.textContent = `L${deliveryWorker.level} · ${Math.round(deliveryMax)} SP`;
   }
 
-  const timeDisplay = gameComplete ? finishTime : state.time.elapsed;
+  let timeDisplay = state.time.elapsed;
+  if (gameComplete) {
+    timeDisplay = finishTime;
+  }
   hudTime.textContent = formatTime(timeDisplay);
 
   const snowActive = isSnowActive();
@@ -582,7 +625,11 @@ function updateHUD() {
     snowHud.classList.toggle('snowy', snowActive);
   }
   if (snowLabel) {
-    snowLabel.textContent = snowActive ? 'Snowing' : 'Clear Skies';
+    if (snowActive) {
+      snowLabel.textContent = 'Snowing';
+    } else {
+      snowLabel.textContent = 'Clear Skies';
+    }
   }
 }
 
@@ -602,7 +649,10 @@ function createAudioSystem() {
   });
 
   function computeVolume(type, base = 1) {
-    const bucket = type === 'music' ? volumes.music : volumes.sfx;
+    let bucket = volumes.sfx;
+    if (type === 'music') {
+      bucket = volumes.music;
+    }
     return clamp(base * volumes.master * bucket, 0, 1);
   }
 
@@ -718,7 +768,11 @@ function createGrassPattern(primary, secondary, accent) {
   tctx.fillRect(0, 0, tile.width, tile.height);
   tctx.fillStyle = secondary;
   for (let y = 0; y < tile.height; y += 4) {
-    for (let x = (y / 4) % 2 === 0 ? 0 : 2; x < tile.width; x += 4) {
+    let startX = 2;
+    if ((y / 4) % 2 === 0) {
+      startX = 0;
+    }
+    for (let x = startX; x < tile.width; x += 4) {
       tctx.fillRect(x, y, 2, 2);
     }
   }
@@ -734,37 +788,11 @@ function createGrassPattern(primary, secondary, accent) {
 }
 
 
-function createBrickPattern(base, mortar, shadow) {
-  const tile = document.createElement('canvas');
-  tile.width = 16;
-  tile.height = 16;
-  const tctx = tile.getContext('2d');
-  tctx.imageSmoothingEnabled = false;
-  tctx.fillStyle = shadow;
-  tctx.fillRect(0, 0, tile.width, tile.height);
-  tctx.fillStyle = mortar;
-  tctx.fillRect(1, 1, tile.width - 2, tile.height - 2);
-  tctx.fillStyle = base;
-  for (let row = 0; row < tile.height; row += 6) {
-    const offset = (row / 6) % 2 === 0 ? 0 : 4;
-    for (let col = offset; col < tile.width; col += 8) {
-      tctx.fillRect(col, row, 6, 4);
-    }
-  }
-  tctx.fillStyle = shadow;
-  for (let y = 0; y < tile.height; y += 4) {
-    tctx.fillRect(0, y, tile.width, 1);
-  }
-  return ctx.createPattern(tile, 'repeat');
-}
-
-
-
 
 function getMcsPatternForFloorsBuilt(floorsBuilt) {
   const paletteIndex = ((floorsBuilt % MCS_FLOOR_PALETTES.length) + MCS_FLOOR_PALETTES.length) % MCS_FLOOR_PALETTES.length;
   const palette = MCS_FLOOR_PALETTES[paletteIndex] || MCS_FLOOR_PALETTES[0];
-  return createBrickPattern(palette.primary, palette.secondary, palette.shadow);
+  return createGrassPattern(palette.primary, palette.secondary, palette.shadow);
 }
 
 function refreshMcsZoneTexture() {
@@ -772,7 +800,11 @@ function refreshMcsZoneTexture() {
   if (!info || !state || !state.floor) {
     return;
   }
-  const builtFloors = Math.max(0, state.progress ? state.progress.floorsBuilt : state.floor.n - 1);
+  let builtFloors = state.floor.n - 1;
+  if (state.progress) {
+    builtFloors = state.progress.floorsBuilt;
+  }
+  builtFloors = Math.max(0, builtFloors);
   const pattern = getMcsPatternForFloorsBuilt(builtFloors);
   info.zone.color = pattern;
   textures.mcs = pattern;
@@ -796,7 +828,7 @@ function generateZones() {
       description: 'Unlimited concrete supply.',
       tilesWide: 2,
       tilesHigh: 2,
-      color: '#9c9c9c',
+      color: textures.concrete,
       padding: grid.cell * 0.75,
       material: 'concrete'
     },
@@ -805,7 +837,7 @@ function generateZones() {
       description: 'Lumber pickup for mid floors.',
       tilesWide: 2,
       tilesHigh: 2,
-      color: '#9b6d3c',
+      color: textures.wood,
       padding: grid.cell * 0.75,
       material: 'wood'
     },
@@ -814,7 +846,7 @@ function generateZones() {
       description: 'Glass and facade materials.',
       tilesWide: 2,
       tilesHigh: 2,
-      color: '#6bd3ff',
+      color: textures.glass,
       padding: grid.cell * 0.75,
       material: 'glass'
     },
@@ -1210,7 +1242,10 @@ function findWorkerCell(preferred, blocked) {
 function createWorker(id, role, name, cell, idleColor, activeColor, accentColor) {
   const width = 20;
   const height = 20;
-  const maxStamina = role === 'delivery' ? 5 : 5;
+  let maxStamina = 5;
+  if (role === 'delivery') {
+    maxStamina = 5;
+  }
   return {
     id,
     role,
@@ -1303,7 +1338,10 @@ function handleMovement(dt) {
 
 // ===== Worker brain loop =====
 function updateWorkers(dt) {
-  const simDt = gameComplete ? 0 : dt * state.time.speed;
+  let simDt = dt * state.time.speed;
+  if (gameComplete) {
+    simDt = 0;
+  }
   workers.forEach(worker => {
     if (worker.oopsBubbleTimer > 0) {
       worker.oopsBubbleTimer = Math.max(0, worker.oopsBubbleTimer - dt);
@@ -2091,7 +2129,10 @@ function updateSnow(dt) {
     }
   }
 
-  const targetAlpha = snow.active ? 0.08 : 0;
+  let targetAlpha = 0;
+  if (snow.active) {
+    targetAlpha = 0.08;
+  }
   snow.overlayAlpha += (targetAlpha - snow.overlayAlpha) * Math.min(1, dt * 3);
 
   if (snow.particles.length === 0 && snow.active) {
@@ -2149,7 +2190,10 @@ function isRedBullActive() {
 }
 
 function getPlayerSpeedMultiplier() {
-  let mult = isRedBullActive() ? 2 : 1;
+  let mult = 1;
+  if (isRedBullActive()) {
+    mult = 2;
+  }
   mult *= currentDifficulty?.speedMult || 1;
   if (isSnowActive()) {
     mult *= getSnowSpeedPenaltyMultiplier();
@@ -2158,7 +2202,10 @@ function getPlayerSpeedMultiplier() {
 }
 
 function getWorkerSpeedMultiplier() {
-  let mult = isRedBullActive() ? 1.3 : 1;
+  let mult = 1;
+  if (isRedBullActive()) {
+    mult = 1.3;
+  }
   mult *= currentDifficulty?.speedMult || 1;
   if (isSnowActive()) {
     mult *= getSnowSpeedPenaltyMultiplier();
@@ -2167,7 +2214,10 @@ function getWorkerSpeedMultiplier() {
 }
 
 function getBuildTimeMultiplier() {
-  let mult = (isRedBullActive() ? 0.9 : 1) * (currentDifficulty?.buildTimeMult || 1);
+  let mult = currentDifficulty?.buildTimeMult || 1;
+  if (isRedBullActive()) {
+    mult *= 0.9;
+  }
   if (isSnowActive()) {
     mult *= getSnowTaskMultiplier(1.1);
   }
@@ -2203,17 +2253,20 @@ function drawGrid() {
 
 function drawRocks() {
   rocks.forEach(rock => {
-    const pattern = rock.kind === 'pond'
-      ? textures.pond
-      : rock.kind === 'fountain'
-        ? textures.pond
-        : textures.rock;
+    let pattern = textures.rock;
+    if (rock.kind === 'pond' || rock.kind === 'fountain') {
+      pattern = textures.pond;
+    }
     rock.cells.forEach(cell => {
       const x = cell.col * grid.cell;
       const y = cell.row * grid.cell;
       ctx.fillStyle = pattern;
       ctx.fillRect(x, y, grid.cell, grid.cell);
-      ctx.strokeStyle = rock.kind === 'pond' ? '#0b2038' : '#11141d';
+      let borderColor = '#11141d';
+      if (rock.kind === 'pond') {
+        borderColor = '#0b2038';
+      }
+      ctx.strokeStyle = borderColor;
       ctx.lineWidth = 2;
       ctx.strokeRect(x + 1, y + 1, grid.cell - 2, grid.cell - 2);
       if (rock.kind === 'pond' || rock.kind === 'fountain') {
@@ -2231,7 +2284,8 @@ function drawRocks() {
 
 function drawZones() {
   zones.forEach(zone => {
-    ctx.fillStyle = zone.color instanceof CanvasPattern ? zone.color : zone.color;
+    const zoneColor = zone.color;
+    ctx.fillStyle = zoneColor;
     ctx.fillRect(zone.x, zone.y, zone.width, zone.height);
 
     ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
@@ -2317,7 +2371,12 @@ function drawFloorProgress(zone) {
 
   for (let i = 0; i < totalFloors; i += 1) {
     const segmentX = barX + i * (segmentWidth + segmentSpacing);
-    const completion = i < floorsBuilt ? 1 : i === floorsBuilt ? currentFloorProgress : 0;
+    let completion = 0;
+    if (i < floorsBuilt) {
+      completion = 1;
+    } else if (i === floorsBuilt) {
+      completion = currentFloorProgress;
+    }
     ctx.fillStyle = 'rgba(32, 36, 56, 0.9)';
     ctx.fillRect(segmentX, barY - 6, segmentWidth, 12);
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
@@ -2351,23 +2410,68 @@ function drawWorkers() {
 
     const isIdle = worker.order === 'idle';
     const highlight = worker.role === 'delivery' && worker.levelGlow > 0;
-    const idleColor = highlight ? '#ffe082' : worker.colorIdle;
-    const activeColor = highlight ? '#ffb300' : worker.colorActive;
-    const accentColor = highlight ? '#ffe9a6' : worker.accentColor;
-    const idleAccent = highlight ? '#e0c777' : '#5b6170';
-    const beltColor = highlight ? '#ffbfa5' : (isIdle ? '#6e7280' : '#f08080');
-    const infoBg = highlight ? 'rgba(66, 42, 12, 0.85)' : '#1d2238ee';
-    const nameColor = highlight ? '#ffe082' : '#f7f7fb';
-    const levelColor = highlight ? '#fff4c1' : '#9aa0b7';
-    const stateColor = highlight ? '#fff0a6' : (isIdle ? '#9aa0b7' : '#fce38a');
+    let idleColor = worker.colorIdle;
+    if (highlight) {
+      idleColor = '#ffe082';
+    }
+    let activeColor = worker.colorActive;
+    if (highlight) {
+      activeColor = '#ffb300';
+    }
+    let accentColor = worker.accentColor;
+    if (highlight) {
+      accentColor = '#ffe9a6';
+    }
+    let idleAccent = '#5b6170';
+    if (highlight) {
+      idleAccent = '#e0c777';
+    }
+    let beltColor = '#f08080';
+    if (isIdle) {
+      beltColor = '#6e7280';
+    }
+    if (highlight) {
+      beltColor = '#ffbfa5';
+    }
+    let infoBg = '#1d2238ee';
+    if (highlight) {
+      infoBg = 'rgba(66, 42, 12, 0.85)';
+    }
+    let nameColor = '#f7f7fb';
+    if (highlight) {
+      nameColor = '#ffe082';
+    }
+    let levelColor = '#9aa0b7';
+    if (highlight) {
+      levelColor = '#fff4c1';
+    }
+    let stateColor = '#fce38a';
+    if (isIdle) {
+      stateColor = '#9aa0b7';
+    }
+    if (highlight) {
+      stateColor = '#fff0a6';
+    }
 
-    ctx.fillStyle = isIdle ? idleColor : activeColor;
+    if (isIdle) {
+      ctx.fillStyle = idleColor;
+    } else {
+      ctx.fillStyle = activeColor;
+    }
     ctx.fillRect(worker.x, bodyY, worker.width, worker.height);
 
-    ctx.fillStyle = isIdle ? idleAccent : accentColor;
+    if (isIdle) {
+      ctx.fillStyle = idleAccent;
+    } else {
+      ctx.fillStyle = accentColor;
+    }
     ctx.fillRect(worker.x + 2, bodyY, worker.width - 4, 5);
 
-    ctx.fillStyle = isIdle ? '#3f4554' : '#41434f';
+    if (isIdle) {
+      ctx.fillStyle = '#3f4554';
+    } else {
+      ctx.fillStyle = '#41434f';
+    }
     ctx.fillRect(worker.x + 4, bodyY + 4, 4, 4);
     ctx.fillRect(worker.x + worker.width - 8, bodyY + 4, 4, 4);
 
@@ -2396,7 +2500,10 @@ function drawWorkers() {
 
     ctx.fillStyle = stateColor;
     const staminaText = `${worker.stamina.toFixed(1)}/${getWorkerMaxStamina(worker)}`;
-    const stateLabel = worker.oopsTimer > 0 ? 'Oops' : formatStateLabel(worker.stateMachine.state);
+    let stateLabel = formatStateLabel(worker.stateMachine.state);
+    if (worker.oopsTimer > 0) {
+      stateLabel = 'Oops';
+    }
     ctx.fillText(`${stateLabel} · ${staminaText}`, worker.x + worker.width / 2, bodyY - 6);
   });
   ctx.textAlign = 'left';
@@ -2503,7 +2610,10 @@ function update(dt) {
       updateRedBull(scaledDt);
     }
     if (player.cooldown > 0) {
-      const cooldownDelta = gameComplete ? dt : scaledDt;
+      let cooldownDelta = scaledDt;
+      if (gameComplete) {
+        cooldownDelta = dt;
+      }
       player.cooldown = Math.max(0, player.cooldown - cooldownDelta);
     }
     updateWorkers(dt);
@@ -2634,7 +2744,10 @@ function interact() {
   if (nearbyWorker) {
     const stamina = nearbyWorker.stamina.toFixed(1);
     const staminaCap = getWorkerMaxStamina(nearbyWorker);
-    const staminaCapText = Number.isInteger(staminaCap) ? staminaCap : staminaCap.toFixed(1);
+    let staminaCapText = staminaCap.toFixed(1);
+    if (Number.isInteger(staminaCap)) {
+      staminaCapText = staminaCap;
+    }
     showBubble(`${nearbyWorker.name}: ${stamina}/${staminaCapText} stamina.`);
     return;
   }
@@ -2697,13 +2810,24 @@ function togglePause() {
     audio.playMusic();
   }
   if (pauseBtn) {
-    pauseBtn.textContent = isPaused ? 'Resume' : 'Pause';
+    if (isPaused) {
+      pauseBtn.textContent = 'Resume';
+    } else {
+      pauseBtn.textContent = 'Pause';
+    }
   }
-  statusEl.textContent = isPaused ? 'Simulation paused.' : 'Simulation running.';
+  if (isPaused) {
+    statusEl.textContent = 'Simulation paused.';
+  } else {
+    statusEl.textContent = 'Simulation running.';
+  }
 }
 
 function updateSpeedLabel() {
-  const label = Number.isInteger(state.time.speed) ? state.time.speed : state.time.speed.toFixed(1);
+  let label = state.time.speed.toFixed(1);
+  if (Number.isInteger(state.time.speed)) {
+    label = state.time.speed;
+  }
   if (speedBtn) {
     speedBtn.textContent = `Speed: ${label}×`;
   }
@@ -2772,7 +2896,11 @@ function refreshWorkerCards() {
     const staminaMaxEl = card.querySelector('.summary .stamina-max');
     if (staminaMaxEl) {
       const max = getWorkerMaxStamina(worker);
-      staminaMaxEl.textContent = Number.isInteger(max) ? max : max.toFixed(1);
+      let maxLabel = max.toFixed(1);
+      if (Number.isInteger(max)) {
+        maxLabel = max;
+      }
+      staminaMaxEl.textContent = maxLabel;
     }
     const levelEl = card.querySelector('.summary .level');
     if (levelEl) {
@@ -2780,7 +2908,11 @@ function refreshWorkerCards() {
     }
     const stateEl = card.querySelector('.summary .state');
     if (stateEl) {
-      stateEl.textContent = worker.oopsTimer > 0 ? 'oops' : worker.stateMachine.state;
+      let stateText = worker.stateMachine.state;
+      if (worker.oopsTimer > 0) {
+        stateText = 'oops';
+      }
+      stateEl.textContent = stateText;
     }
     const buttons = card.querySelectorAll('button[data-action]');
     buttons.forEach(btn => {
@@ -2796,7 +2928,10 @@ function formatOrderLabel(order, workerKey) {
     return 'Build';
   }
   if (order === 'deliver') {
-    return workerKey === 'delivery' ? 'Fetch' : 'Deliver';
+    if (workerKey === 'delivery') {
+      return 'Fetch';
+    }
+    return 'Deliver';
   }
   if (order === 'rest') {
     return 'Rest';
