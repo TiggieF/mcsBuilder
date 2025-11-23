@@ -67,10 +67,11 @@ const AUDIO_FILES = {
 };
 const DEFAULT_VOLUME = { master: 0.5, music: 0.7, sfx: 0.85 };
 
+// Floor ranges determine which material tier is required at any point in construction.
 const MATERIAL_RULES = [
-  { name: 'concrete', floors: [1, 3], color: '#9c9c9c' },
-  { name: 'wood', floors: [4, 7], color: '#b3773c' },
-  { name: 'glass', floors: [8, 10], color: '#7cd7ff' }
+  { name: 'concrete', floors: [1, 3] },
+  { name: 'wood', floors: [4, 7] },
+  { name: 'glass', floors: [8, 10] }
 ];
 
 // =====  worker =====
@@ -150,6 +151,7 @@ function materialNeededForFloor(floor) {
   return MATERIAL_BASE + MATERIAL_PER_FLOOR * (floor - 1);
 }
 
+// Picks the correct material label based on which floor range currently applies.
 function materialForFloor(floor) {
   const matchingRule = MATERIAL_RULES.find(entry => {
     const [start, end] = entry.floors;
@@ -164,16 +166,7 @@ function materialForFloor(floor) {
   return fallbackRule.name;
 }
 
-function materialColor(material) {
-  const rule = MATERIAL_RULES.find(entry => entry.name === material);
-
-  if (rule) {
-    return rule.color;
-  }
-
-  return '#9c9c9c';
-}
-
+// Formats material identifiers so HUD text reads nicely.
 function materialLabel(material) {
   if (!material) {
     return 'Unknown';
@@ -2063,15 +2056,6 @@ function getRandomInt(min, max) {
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
-}
-
-function shadeColor(hex, percent) {
-  const normalized = hex.replace('#', '');
-  const num = parseInt(normalized, 16);
-  const r = clamp((num >> 16) + Math.round(2.55 * percent), 0, 255);
-  const g = clamp(((num >> 8) & 0x00ff) + Math.round(2.55 * percent), 0, 255);
-  const b = clamp((num & 0x0000ff) + Math.round(2.55 * percent), 0, 255);
-  return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
 }
 
 function isSnowActive() {

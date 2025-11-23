@@ -10,6 +10,7 @@
 7. Reused `createGrassPattern` for the concrete/wood/glass depots and dropped the unused `textures.building` variant.
 8. Converted the MCS construction zone to the same grass-pattern pipeline and deleted the obsolete `createBrickPattern` helper.
 9. Expanded the `material*` helper returns into explicit branches so the intent stays readable without chained ternaries.
+10. Removed the unused material color metadata/helper now that textures are managed elsewhere.
 
 ## 🔍 Next cleanup / reuse opportunities
 1. **Consolidate worker cargo resets**  
@@ -27,10 +28,7 @@
 5. **(Optional) Remove the empty `stages/stage9/README.md` or replace it with a pointer to `MANUAL.md` / `stage9.md`**  
    - Keeps docs consolidated in one place (user already planned to handle this).
 
-6. **Either wire material colors into rendering or delete the metadata**  
-   - `MATERIAL_RULES` still carries `color` values and the `materialColor` helper (stages/stage9/main.js:65-170), but no HUD or renderer ever consumes that data. Removing the unused fields/module or surfacing them in the UI would trim dead code and make the config less confusing.
-
-7. **Remove the unused `shadeColor` helper**  
+6. **Remove the unused `shadeColor` helper**  
    - `shadeColor` (stages/stage9/main.js:2068) no longer has any callers now that all zone textures come straight from `createGrassPattern`. Dropping the helper (and any imports that existed for it) trims dead weight without affecting gameplay.
 
 These follow-ups keep folder9 lean and make future balance tweaks safer.
