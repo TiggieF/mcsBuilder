@@ -44,20 +44,4 @@ Auth/API stages skipped (frontend-only project).
 
 ---
 
-## 📜 License
-Educational coursework — non-commercial use only.
 
-# Stages — Overview
-
-Each stage is incremental and playable independently.  
-Codex will implement one stage per commit.
-
-| Stage | Focus |
-|--------|-------|
-| 00 | Scaffold (Grid + Player + UI) |
-| 01 | Auth (Skipped) |
-| 02 | Domain Model |
-| 03 | API CRUD (Skipped) |
-| 04 | Frontend UI + FSM |
-| 05 | Analytics |
-| 06 | Deployment |
